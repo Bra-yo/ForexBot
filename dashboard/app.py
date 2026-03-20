@@ -220,13 +220,22 @@ class TradingDashboard:
         
         with col3:
             if st.session_state.trading_engine:
-                positions = st.session_state.trading_engine.get_position_summary()
-                st.metric("Open Positions", positions['count'])
+                try:
+                    positions = st.session_state.trading_engine.get_position_summary()
+                    st.metric("Open Positions", positions.get('total_positions', 0))
+                except Exception as e:
+                    st.metric("Open Positions", "Error")
+                    st.error(f"Positions error: {e}")
         
         with col4:
             if st.session_state.ai_enabled and st.session_state.trading_engine:
-                ai_perf = st.session_state.trading_engine.get_ai_performance_report()
-                st.metric("AI Decisions", ai_perf['ai_performance']['ai_predictions'])
+                try:
+                    ai_perf = st.session_state.trading_engine.get_ai_performance_report()
+                    ai_predictions = ai_perf.get('ai_performance', {}).get('ai_predictions', 0)
+                    st.metric("AI Decisions", ai_predictions)
+                except Exception as e:
+                    st.metric("AI Decisions", "Error")
+                    st.error(f"AI performance error: {e}")
     
     def render_metrics_row(self):
         """Render key metrics"""
@@ -234,43 +243,94 @@ class TradingDashboard:
             return
         
         # Get account summary
-        summary = st.session_state.trading_engine.get_mt5_account_summary()
+        try:
+            summary = st.session_state.trading_engine.get_mt5_account_summary()
+        except AttributeError:
+            # Fallback to regular trading statistics
+            summary = st.session_state.trading_engine.get_trading_statistics()
         
         if 'error' not in summary:
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric(
-                    "Account Balance",
-                    f"${summary['account']['balance']:.2f}",
-                    delta=f"${summary['account']['profit']:.2f}"
-                )
-            
-            with col2:
-                st.metric(
-                    "Equity",
-                    f"${summary['account']['equity']:.2f}",
-                    delta=f"${summary['positions']['unrealized_pnl']:.2f}"
-                )
-            
-            with col3:
-                st.metric(
-                    "Free Margin",
-                    f"${summary['account']['margin_free']:.2f}",
-                    delta=f"{summary['account']['margin_level']:.1f}%"
-                )
-            
-            with col4:
-                win_rate = 0
-                if summary['execution_stats']['orders_executed'] > 0:
-                    win_rate = (summary['execution_stats']['orders_executed'] / 
-                              summary['execution_stats']['orders_placed']) * 100
+            try:
+                col1, col2, col3, col4 = st.columns(4)
                 
-                st.metric(
-                    "Win Rate",
-                    f"{win_rate:.1f}%",
-                    delta=f"{summary['execution_stats']['orders_executed']} trades"
-                )
+                # Handle different summary structures
+                if 'account' in summary:
+                    # MT5 summary structure
+                    with col1:
+                        balance = summary.get('account', {}).get('balance', 0)
+                        profit = summary.get('account', {}).get('profit', 0)
+                        st.metric(
+                            "Account Balance",
+                            f"${balance:.2f}",
+                            delta=f"${profit:.2f}"
+                        )
+                    
+                    with col2:
+                        equity = summary.get('account', {}).get('equity', 0)
+                        unrealized_pnl = summary.get('positions', {}).get('unrealized_pnl', 0)
+                        st.metric(
+                            "Equity",
+                            f"${equity:.2f}",
+                            delta=f"${unrealized_pnl:.2f}"
+                        )
+                    
+                    with col3:
+                        margin_free = summary.get('account', {}).get('margin_free', 0)
+                        margin_level = summary.get('account', {}).get('margin_level', 0)
+                        st.metric(
+                            "Free Margin",
+                            f"${margin_free:.2f}",
+                            delta=f"{margin_level:.1f}%"
+                        )
+                    
+                    with col4:
+                        orders_executed = summary.get('execution_stats', {}).get('orders_executed', 0)
+                        orders_placed = summary.get('execution_stats', {}).get('orders_placed', 1)
+                        win_rate = (orders_executed / orders_placed * 100) if orders_placed > 0 else 0
+                        
+                        st.metric(
+                            "Win Rate",
+                            f"{win_rate:.1f}%",
+                            delta=f"{orders_executed} trades"
+                        )
+                else:
+                    # Regular trading statistics structure
+                    with col1:
+                        total_pnl = summary.get('total_pnl', 0)
+                        st.metric(
+                            "Total P&L",
+                            f"${total_pnl:.2f}",
+                            delta=f"${total_pnl:.2f}"
+                        )
+                    
+                    with col2:
+                        total_trades = summary.get('total_trades', 0)
+                        st.metric(
+                            "Total Trades",
+                            f"{total_trades}",
+                            delta="Completed"
+                        )
+                    
+                    with col3:
+                        win_rate = summary.get('win_rate', 0)
+                        st.metric(
+                            "Win Rate",
+                            f"{win_rate:.1f}%",
+                            delta="Performance"
+                        )
+                    
+                    with col4:
+                        profit_factor = summary.get('profit_factor', 0)
+                        st.metric(
+                            "Profit Factor",
+                            f"{profit_factor:.2f}",
+                            delta="Ratio"
+                        )
+                        
+            except Exception as e:
+                st.error(f"Error rendering metrics: {e}")
+        else:
+            st.error(f"Account summary error: {summary['error']}")
     
     def render_charts_row(self):
         """Render trading charts"""
@@ -588,7 +648,7 @@ class TradingDashboard:
         try:
             with st.spinner("Initializing trading engine..."):
                 # Create components
-                risk_manager = RiskManager(initial_balance=10000)
+                risk_manager = RiskManager(account_balance=10000)
                 notifications = NotificationManager()
                 
                 # Create AI trading engine
@@ -651,7 +711,7 @@ class TradingDashboard:
                     st.success("Trading started successfully!")
                     st.rerun()
                 else:
-                    st.error("Failed to start trading")
+                    st.error("Failed to start trading - Check MT5 connection and AI settings")
                     
         except Exception as e:
             st.error(f"Error starting trading: {e}")
@@ -660,11 +720,16 @@ class TradingDashboard:
         """Stop trading"""
         try:
             if st.session_state.trading_engine:
-                st.session_state.trading_engine.stop_real_time_trading()
-            
-            st.session_state.is_running = False
-            st.success("Trading stopped!")
-            st.rerun()
+                success = st.session_state.trading_engine.stop_real_time_trading()
+                
+                if success:
+                    st.session_state.is_running = False
+                    st.success("Trading stopped!")
+                    st.rerun()
+                else:
+                    st.warning("Trading stop requested - check MT5 connection")
+            else:
+                st.warning("No trading engine to stop")
             
         except Exception as e:
             st.error(f"Error stopping trading: {e}")

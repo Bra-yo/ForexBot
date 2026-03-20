@@ -14,9 +14,13 @@ from collections import deque
 import threading
 import time
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 # Import AI components
-from feature_engineering import FeatureEngineer
-from model_trainer import ModelTrainer
+from ai.feature_engineering import FeatureEngineer
+from ai.model_trainer import ModelTrainer
 
 logger = logging.getLogger(__name__)
 

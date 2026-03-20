@@ -15,7 +15,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass
-from mt5_connector import MT5Connector
+from .mt5_connector import MT5Connector
 
 logger = logging.getLogger(__name__)
 

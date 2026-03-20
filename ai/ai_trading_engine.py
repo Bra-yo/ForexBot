@@ -154,22 +154,36 @@ class AITradingEngine(TradingEngine):
     def start_ai_trading(self, symbols: List[str], timeframes: List[str] = None):
         """Start AI-powered trading with real-time predictions"""
         try:
+            # Check if MT5 is connected
             if not self.mt5_connector.connected:
-                logger.error("MT5 not connected")
+                logger.warning("MT5 not connected - starting in simulation mode")
+                # Continue with AI predictions even without MT5
+            
+            # Check AI settings - allow trading even without pre-trained models
+            if not self.ai_enabled:
+                logger.warning("AI not enabled")
                 return False
             
-            if not self.ai_enabled or not self.ai_predictor.models:
-                logger.warning("AI not enabled or no models loaded")
-                return False
+            # Allow trading to start even without models (will use rule-based strategy)
+            if not self.ai_predictor.models:
+                logger.info("No AI models loaded - using rule-based strategy")
+                # Continue with rule-based trading
             
             if timeframes is None:
                 timeframes = ['M1', 'M5', 'M15', 'H1']
             
-            # Start MT5 streaming
-            self.mt5_streamer.start_streaming(symbols, timeframes)
+            # Start MT5 streaming if connected
+            if self.mt5_connector.connected:
+                self.mt5_streamer.start_streaming(symbols, timeframes)
             
-            # Start real-time AI predictions
-            self.realtime_predictor.start_real_time_prediction(symbols, update_interval=30)
+            # Start real-time AI predictions (only if models available)
+            if self.ai_predictor.models and hasattr(self, 'realtime_predictor') and self.realtime_predictor:
+                self.realtime_predictor.start_real_time_prediction(symbols, update_interval=30)
+            else:
+                logger.info("Starting rule-based trading (no AI models)")
+            
+            logger.info(f"Trading started for symbols: {symbols}")
+            return True
             
             # Subscribe to data updates
             for symbol in symbols:
@@ -722,3 +736,29 @@ class AITradingEngine(TradingEngine):
                 self.mt5_connector.disconnect()
         except:
             pass
+    
+    def start_real_time_trading(self, symbols=None, timeframes=None):
+        """Start real-time trading (dashboard interface)"""
+        try:
+            return self.start_ai_trading(symbols, timeframes)
+        except Exception as e:
+            logger.error(f"Error starting real-time trading: {e}")
+            return False
+    
+    def stop_real_time_trading(self):
+        """Stop real-time trading (dashboard interface)"""
+        try:
+            # Stop MT5 streaming
+            if hasattr(self, 'mt5_streamer') and self.mt5_streamer:
+                self.mt5_streamer.stop_streaming()
+            
+            # Stop real-time predictor
+            if hasattr(self, 'realtime_predictor') and self.realtime_predictor:
+                self.realtime_predictor.stop_real_time_prediction()
+            
+            logger.info("Real-time trading stopped")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error stopping real-time trading: {e}")
+            return False

@@ -14,11 +14,15 @@ from sklearn.model_selection import train_test_split, TimeSeriesSplit, cross_val
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso
 from sklearn.svm import SVC, SVR
-from sklearn.metrics import classification_report, regression_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, mean_squared_error, mean_absolute_error, r2_score
 import xgboost as xgb
 import lightgbm as lgb
 import optuna
-from feature_engineering import FeatureEngineer
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from ai.feature_engineering import FeatureEngineer
 
 logger = logging.getLogger(__name__)
 

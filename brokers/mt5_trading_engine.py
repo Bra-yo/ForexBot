@@ -18,10 +18,10 @@ from risk_management import RiskManager
 from notifications import NotificationManager
 
 # Import MT5 components
-from mt5_connector import MT5Connector
-from mt5_data_reader import MT5DataReader
-from mt5_order_executor import MT5OrderExecutor, OrderRequest, OrderType
-from mt5_streaming import MT5Streamer, TickData, BarData
+from .mt5_connector import MT5Connector
+from .mt5_data_reader import MT5DataReader
+from .mt5_order_executor import MT5OrderExecutor, OrderRequest, OrderType
+from .mt5_streaming import MT5Streamer, TickData, BarData
 
 logger = logging.getLogger(__name__)
 

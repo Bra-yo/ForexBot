@@ -16,7 +16,7 @@ import logging
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass
 from collections import defaultdict, deque
-from mt5_connector import MT5Connector
+from .mt5_connector import MT5Connector
 
 logger = logging.getLogger(__name__)
 

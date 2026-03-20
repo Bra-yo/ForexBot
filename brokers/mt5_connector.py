@@ -447,7 +447,7 @@ class MT5Connector:
                     'tp': order.tp,
                     'state': order.state,
                     'time_setup': pd.to_datetime(order.time_setup, unit='s'),
-                    'time_done': pd.to_datetime(order.time_done, unit='s),
+                    'time_done': pd.to_datetime(order.time_done, unit='s'),
                     'comment': order.comment,
                     'commission': order.commission,
                     'swap': order.swap,
