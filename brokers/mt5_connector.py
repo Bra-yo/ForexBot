@@ -95,20 +95,45 @@ class MT5Connector:
             if account_info is None:
                 return {'error': 'Failed to get account info'}
             
+            # Debug: Print available attributes
+            logger.info(f"Account info type: {type(account_info)}")
+            logger.info(f"Available attributes: {[attr for attr in dir(account_info) if not attr.startswith('_')]}")
+            
+            # Try different attribute names for free margin
+            free_margin_val = None
+            if hasattr(account_info, 'free_margin'):
+                free_margin_val = account_info.free_margin
+            elif hasattr(account_info, 'margin_free'):
+                free_margin_val = account_info.margin_free
+            elif hasattr(account_info, 'freemargin'):
+                free_margin_val = account_info.freemargin
+            else:
+                logger.warning("Could not find free margin attribute")
+                free_margin_val = account_info.balance - account_info.margin if hasattr(account_info, 'margin') else 0
+            
+            # Try different attribute names for margin used
+            margin_used_val = None
+            if hasattr(account_info, 'margin_used'):
+                margin_used_val = account_info.margin_used
+            elif hasattr(account_info, 'margin'):
+                margin_used_val = account_info.margin
+            else:
+                margin_used_val = 0
+            
             return {
                 'login': account_info.login,
                 'server': account_info.server,
                 'currency': account_info.currency,
                 'balance': account_info.balance,
                 'equity': account_info.equity,
-                'margin': account_info.margin,
-                'free_margin': account_info.free_margin,
-                'margin_level': account_info.margin_level,
+                'margin': account_info.margin if hasattr(account_info, 'margin') else margin_used_val,
+                'free_margin': free_margin_val,
+                'margin_level': account_info.margin_level if hasattr(account_info, 'margin_level') else 0,
                 'leverage': account_info.leverage,
                 'profit': account_info.profit,
-                'swap': account_info.swap,
-                'margin_free': account_info.margin_free,
-                'margin_used': account_info.margin_used
+                'swap': account_info.swap if hasattr(account_info, 'swap') else 0,
+                'margin_free': free_margin_val,
+                'margin_used': margin_used_val
             }
             
         except Exception as e:
@@ -129,23 +154,34 @@ class MT5Connector:
             # Store for future use
             self.symbols_info[symbol] = symbol_info
             
-            return {
-                'symbol': symbol_info.name,
-                'digits': symbol_info.digits,
-                'point': symbol_info.point,
-                'tick_value': symbol_info.trade_tick_value,
-                'tick_size': symbol_info.trade_tick_size,
-                'contract_size': symbol_info.trade_contract_size,
-                'volume_min': symbol_info.volume_min,
-                'volume_max': symbol_info.volume_max,
-                'volume_step': symbol_info.volume_step,
-                'spread': symbol_info.spread,
-                'swap_long': symbol_info.swap_long,
-                'swap_short': symbol_info.swap_short,
-                'starting': symbol_info.starting,
-                'expiration': symbol_info.expiration,
-                'trade_mode': symbol_info.trade_mode
+            # Safely get attributes with fallbacks
+            result = {
+                'symbol': getattr(symbol_info, 'name', symbol),
+                'digits': getattr(symbol_info, 'digits', 5),
+                'point': getattr(symbol_info, 'point', 0.00001),
+                'tick_value': getattr(symbol_info, 'trade_tick_value', 0.0001),
+                'tick_size': getattr(symbol_info, 'trade_tick_size', 0.01),
+                'contract_size': getattr(symbol_info, 'trade_contract_size', 100000),
+                'volume_min': getattr(symbol_info, 'volume_min', 0.01),
+                'volume_max': getattr(symbol_info, 'volume_max', 100.0),
+                'volume_step': getattr(symbol_info, 'volume_step', 0.01),
+                'spread': getattr(symbol_info, 'spread', 0),
+                'swap_long': getattr(symbol_info, 'swap_long', 0),
+                'swap_short': getattr(symbol_info, 'swap_short', 0),
+                'trade_mode': getattr(symbol_info, 'trade_mode', 0),
+                'trade_stops_level': getattr(symbol_info, 'trade_stops_level', 0),
+                'trade_contract_size': getattr(symbol_info, 'trade_contract_size', 100000),
+                'margin_initial': getattr(symbol_info, 'margin_initial', 0),
+                'margin_maintenance': getattr(symbol_info, 'margin_maintenance', 0)
             }
+            
+            # Skip attributes that might not exist
+            optional_attrs = ['starting', 'expiration']
+            for attr in optional_attrs:
+                if hasattr(symbol_info, attr):
+                    result[attr] = getattr(symbol_info, attr)
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error getting symbol info for {symbol}: {e}")
@@ -276,15 +312,31 @@ class MT5Connector:
             if order_type.upper() == 'BUY':
                 price = tick.ask
                 mt5_type = mt5.ORDER_TYPE_BUY
-                sl_price = price - 50 * symbol_info.point  # 50 pips SL
-                tp_price = price + 100 * symbol_info.point  # 100 pips TP
+                # Use wider stops to be safe
+                sl_price = price - 100 * symbol_info.point  # 100 pips SL
+                tp_price = price + 150 * symbol_info.point  # 150 pips TP
             elif order_type.upper() == 'SELL':
                 price = tick.bid
                 mt5_type = mt5.ORDER_TYPE_SELL
-                sl_price = price + 50 * symbol_info.point  # 50 pips SL
-                tp_price = price - 100 * symbol_info.point  # 100 pips TP
+                sl_price = price + 100 * symbol_info.point  # 100 pips SL
+                tp_price = price - 150 * symbol_info.point  # 150 pips TP
             else:
                 return {'success': False, 'error': 'Invalid order type'}
+            
+            # Validate SL/TP distances
+            sl_distance = abs(price - sl_price) / symbol_info.point
+            tp_distance = abs(tp_price - price) / symbol_info.point
+            
+            # Ensure minimum distances (very conservative)
+            min_distance = max(50, symbol_info.trade_stops_level if hasattr(symbol_info, 'trade_stops_level') else 50)
+            
+            if sl_distance < min_distance:
+                sl_price = price - min_distance * symbol_info.point if order_type.upper() == 'BUY' else price + min_distance * symbol_info.point
+                sl_distance = min_distance
+            
+            if tp_distance < min_distance:
+                tp_price = price + min_distance * symbol_info.point if order_type.upper() == 'BUY' else price - min_distance * symbol_info.point
+                tp_distance = min_distance
             
             # Build request
             request = {
@@ -299,7 +351,7 @@ class MT5Connector:
                 "magic": magic,
                 "comment": "BrayoForexBot",
                 "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
+                # Removed type_filling to use broker default
             }
             
             # Send order
@@ -329,12 +381,12 @@ class MT5Connector:
             logger.error(f"Error placing order: {e}")
             return {'success': False, 'error': str(e)}
     
-    def close_position(self, position: Dict, deviation: int = 20) -> Dict:
+    def close_position(self, position, deviation: int = 20) -> Dict:
         """
         Close an open position
         
         Args:
-            position: Position dictionary from get_positions()
+            position: Position dictionary from get_positions() OR ticket number
             deviation: Maximum price deviation
             
         Returns:
@@ -344,39 +396,71 @@ class MT5Connector:
             if not self.connected:
                 return {'success': False, 'error': 'Not connected to MT5'}
             
+            # Initialize ticket variable to ensure it's always defined
+            ticket = None
+            
+            # Handle both position dict and ticket number
+            if isinstance(position, dict):
+                position_dict = position
+                ticket = position['ticket']
+            else:
+                # Get position by ticket number
+                positions = mt5.positions_get()
+                position_dict = None
+                for pos in positions:
+                    if pos.ticket == position:
+                        position_dict = {
+                            'ticket': pos.ticket,
+                            'symbol': pos.symbol,
+                            'type': pos.type,
+                            'volume': pos.volume,
+                            'price_open': pos.price_open,
+                            'sl': pos.sl,
+                            'tp': pos.tp
+                        }
+                        ticket = pos.ticket
+                        break
+                
+                if position_dict is None:
+                    return {'success': False, 'error': f'Position {position} not found'}
+            
             # Build close request
-            if position['type'] == mt5.POSITION_TYPE_BUY:
+            if position_dict['type'] == mt5.POSITION_TYPE_BUY:
                 order_type = mt5.ORDER_TYPE_SELL
-                price = mt5.symbol_info_tick(position['symbol']).bid
+                price = mt5.symbol_info_tick(position_dict['symbol']).bid
             else:  # SELL
                 order_type = mt5.ORDER_TYPE_BUY
-                price = mt5.symbol_info_tick(position['symbol']).ask
+                price = mt5.symbol_info_tick(position_dict['symbol']).ask
             
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": position['symbol'],
-                "volume": position['volume'],
+                "symbol": position_dict['symbol'],
+                "volume": position_dict['volume'],
                 "type": order_type,
-                "position": position['ticket'],
+                "position": ticket,
                 "price": price,
                 "deviation": deviation,
                 "magic": 234000,
                 "comment": "BrayoForexBot close",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
+                "type_time": mt5.ORDER_TIME_GTC
+                # Removed type_filling to use broker default
             }
             
             # Send close order
+            print(f"DEBUG - Sending close request for ticket: {ticket}")
             result = mt5.order_send(request)
+            print(f"DEBUG - Order send result: {result}")
+            print(f"DEBUG - Retcode: {result.retcode}, Comment: {result.comment}")
             
             if result.retcode != mt5.TRADE_RETCODE_DONE:
+                print(f"DEBUG - Close failed with retcode: {result.retcode}")
                 return {
                     'success': False,
                     'error': f'Close failed: {result.comment}',
                     'retcode': result.retcode
                 }
             
-            logger.info(f"Position closed: {position['ticket']} at {price}")
+            logger.info(f"Position closed: {ticket} at {price}")
             
             return {
                 'success': True,
@@ -423,6 +507,44 @@ class MT5Connector:
         except Exception as e:
             logger.error(f"Error getting positions: {e}")
             return []
+    
+    def modify_position(self, ticket: int, new_sl: float, new_tp: float = None) -> Dict:
+        """Modify stop loss and take profit for a position"""
+        try:
+            if not self.connected:
+                return {'success': False, 'error': 'Not connected to MT5'}
+            
+            # Get current position
+            position = mt5.positions_get(ticket=ticket)
+            if position is None:
+                return {'success': False, 'error': f'Position {ticket} not found'}
+            
+            # Build modification request
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "position": ticket,
+                "sl": new_sl,
+                "tp": new_tp if new_tp else position.tp,
+                "price": position.price_open,
+                "symbol": position.symbol
+            }
+            
+            # Send modification
+            result = mt5.order_send(request)
+            
+            if result.retcode != mt5.TRADE_RETCODE_DONE:
+                return {
+                    'success': False,
+                    'error': f'Modification failed: {result.comment}',
+                    'retcode': result.retcode
+                }
+            
+            logger.info(f"Position {ticket} modified: SL={new_sl}, TP={new_tp if new_tp else position.tp}")
+            return {'success': True, 'ticket': ticket}
+            
+        except Exception as e:
+            logger.error(f"Error modifying position: {e}")
+            return {'success': False, 'error': str(e)}
     
     def get_orders_history(self, start_date: datetime, end_date: datetime) -> List[Dict]:
         """Get order history"""

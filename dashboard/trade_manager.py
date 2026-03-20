@@ -1,0 +1,230 @@
+import datetime
+import streamlit as st
+from typing import Dict, List
+
+class TradeManager:
+    """Advanced trade management with professional risk controls"""
+    
+    def __init__(self, mt5_connector):
+        self.mt5 = mt5_connector
+        
+    def sync_with_mt5_positions(self):
+        """Sync active trades with actual MT5 positions"""
+        try:
+            # Get actual positions from MT5
+            positions = self.mt5.get_positions()
+            
+            if positions and 'error' not in positions:
+                mt5_tickets = {pos['ticket'] for pos in positions}
+                dashboard_tickets = {trade['ticket'] for trade in st.session_state.active_trades}
+                
+                # Remove trades that are closed in MT5
+                for trade in st.session_state.active_trades[:]:
+                    if trade['ticket'] not in mt5_tickets:
+                        # Trade was closed externally, remove from dashboard
+                        st.session_state.active_trades.remove(trade)
+                        
+                # Add trades that are missing from dashboard
+                for pos in positions:
+                    if pos['ticket'] not in dashboard_tickets:
+                        # Add existing MT5 position to dashboard
+                        trade = {
+                            'ticket': pos['ticket'],
+                            'symbol': pos['symbol'],
+                            'type': 'BUY' if pos['type'] == 0 else 'SELL',
+                            'volume': pos['volume'],
+                            'entry_price': pos['price_open'],
+                            'stop_loss': pos['sl'],
+                            'take_profit': pos['tp'],
+                            'open_time': datetime.datetime.now(),
+                            'original_sl': pos['sl']
+                        }
+                        st.session_state.active_trades.append(trade)
+                        
+        except Exception as e:
+            print(f"Error syncing MT5 positions: {e}")
+    
+    def monitor_active_trades(self, bot_settings: Dict) -> List[Dict]:
+        """Monitor and manage all active trades"""
+        closed_trades = []
+        
+        for trade in st.session_state.active_trades:
+            action = self._evaluate_trade(trade, bot_settings)
+            if action['close']:
+                result = self._close_trade(trade, action['reason'])
+                closed_trades.append(result)
+            elif action['modify_sl']:
+                self._modify_stop_loss(trade, action['new_sl'], action['reason'])
+                
+        # Remove closed trades
+        st.session_state.active_trades = [
+            t for t in st.session_state.active_trades 
+            if t['ticket'] not in [c['ticket'] for c in closed_trades]
+        ]
+        
+        return closed_trades
+    
+    def _evaluate_trade(self, trade: Dict, settings: Dict) -> Dict:
+        """Evaluate if trade should be closed or modified"""
+        # Handle both trade dict and ticket number
+        ticket = trade['ticket'] if isinstance(trade, dict) else trade
+        entry_price = trade['entry_price'] if isinstance(trade, dict) else trade.get('entry_price', 0)
+        stop_loss = trade['stop_loss'] if isinstance(trade, dict) else trade.get('stop_loss', 0)
+        take_profit = trade['take_profit'] if isinstance(trade, dict) else trade.get('take_profit', 0)
+        trade_type = trade['type'] if isinstance(trade, dict) else trade.get('type', 'BUY')
+        volume = trade['volume'] if isinstance(trade, dict) else trade.get('volume', 0.01)
+        symbol = trade['symbol'] if isinstance(trade, dict) else trade.get('symbol', 'EURUSD')
+        
+        current_price = self._get_current_price(symbol)
+        if not current_price:
+            return {'close': False, 'modify_sl': False}
+        
+        # Calculate current profit/loss
+        if trade_type == 'BUY':
+            current_profit = (current_price - entry_price) * volume * 100000
+        else:
+            current_profit = (entry_price - current_price) * volume * 100000
+        
+        profit_pips = abs(current_profit / (volume * 10))
+        
+        # DEBUG: Print current values for troubleshooting
+        print(f"DEBUG - Trade {ticket}: Type={trade_type}, Current={current_price:.5f}, SL={stop_loss:.5f}, TP={take_profit:.5f}, Profit={profit_pips:.1f} pips")
+        
+        # Check stop loss (MOST IMPORTANT - Check first)
+        if trade_type == 'BUY' and current_price <= stop_loss:
+            print(f"DEBUG - BUY Stop Loss Hit: {current_price:.5f} <= {stop_loss:.5f}")
+            return {'close': True, 'reason': 'Stop Loss Hit'}
+        elif trade_type == 'SELL' and current_price >= stop_loss:
+            print(f"DEBUG - SELL Stop Loss Hit: {current_price:.5f} >= {stop_loss:.5f}")
+            return {'close': True, 'reason': 'Stop Loss Hit'}
+        
+        # ADVANCED EXIT LOGIC - Check BEFORE fixed TP
+        # Break-even logic
+        if settings['break_even_enabled'] and profit_pips >= settings['min_profit_pips']:
+            if trade_type == 'BUY' and stop_loss < entry_price:
+                print(f"DEBUG - Moving BUY SL to break-even: {stop_loss:.5f} -> {entry_price:.5f}")
+                return {'modify_sl': True, 'new_sl': entry_price, 'reason': 'Break-even'}
+            elif trade_type == 'SELL' and stop_loss > entry_price:
+                print(f"DEBUG - Moving SELL SL to break-even: {stop_loss:.5f} -> {entry_price:.5f}")
+                return {'modify_sl': True, 'new_sl': entry_price, 'reason': 'Break-even'}
+        
+        # Trailing stop
+        if settings['trailing_stop_enabled'] and profit_pips >= settings['trailing_profit_pips']:
+            if trade_type == 'BUY':
+                new_sl = current_price - (settings['min_profit_pips'] * 0.0001)
+                if new_sl > stop_loss:
+                    print(f"DEBUG - BUY Trailing stop: {stop_loss:.5f} -> {new_sl:.5f}")
+                    return {'modify_sl': True, 'new_sl': new_sl, 'reason': 'Trailing Stop'}
+            else:
+                new_sl = current_price + (settings['min_profit_pips'] * 0.0001)
+                if new_sl < stop_loss:
+                    print(f"DEBUG - SELL Trailing stop: {stop_loss:.5f} -> {new_sl:.5f}")
+                    return {'modify_sl': True, 'new_sl': new_sl, 'reason': 'Trailing Stop'}
+        
+        # Time-based exit
+        if settings['time_exit_enabled']:
+            open_time = trade['open_time'] if isinstance(trade, dict) else trade.get('open_time', datetime.datetime.now())
+            trade_duration = datetime.datetime.now() - open_time
+            if trade_duration.total_seconds() > settings['max_trade_time_minutes'] * 60:
+                if current_profit <= 0:
+                    print(f"DEBUG - Time exit: {trade_duration.total_seconds()/60:.1f}m, no profit")
+                    return {'close': True, 'reason': 'Time Exit (No Profit)'}
+        
+        # Check take profit (LAST - after advanced logic)
+        if trade_type == 'BUY' and current_price >= take_profit:
+            print(f"DEBUG - BUY Take Profit Hit: {current_price:.5f} >= {take_profit:.5f}")
+            return {'close': True, 'reason': 'Take Profit Hit'}
+        elif trade_type == 'SELL' and current_price <= take_profit:
+            print(f"DEBUG - SELL Take Profit Hit: {current_price:.5f} <= {take_profit:.5f}")
+            return {'close': True, 'reason': 'Take Profit Hit'}
+        
+        return {'close': False, 'modify_sl': False}
+    
+    def _get_current_price(self, symbol: str) -> float:
+        """Get current price for symbol"""
+        try:
+            price_data = self.mt5.get_current_price(symbol)
+            return price_data.get('bid', 0) if price_data else 0
+        except:
+            return 0
+    
+    def _close_trade(self, trade: Dict, reason: str) -> Dict:
+        """Close a trade and record the result"""
+        try:
+            # Handle both trade dict and ticket number
+            ticket = trade['ticket'] if isinstance(trade, dict) else trade
+            
+            print(f"DEBUG - Attempting to close trade {ticket} for reason: {reason}")
+            
+            result = self.mt5.close_position(ticket)
+            
+            print(f"DEBUG - Close result: {result}")
+            
+            # Update daily loss tracking
+            if result.get('profit', 0) < 0:
+                st.session_state.daily_loss += abs(result['profit'])
+            
+            return {
+                'ticket': ticket,
+                'reason': reason,
+                'profit': result.get('profit', 0),
+                'close_time': datetime.datetime.now()
+            }
+        except Exception as e:
+            print(f"DEBUG - Exception in _close_trade: {e}")
+            return {'ticket': trade['ticket'] if isinstance(trade, dict) else trade, 'error': str(e)}
+    
+    def _modify_stop_loss(self, trade: Dict, new_sl: float, reason: str):
+        """Modify stop loss for a trade"""
+        try:
+            # Handle both trade dict and ticket number
+            ticket = trade['ticket'] if isinstance(trade, dict) else trade
+            tp = trade['take_profit'] if isinstance(trade, dict) else trade.get('take_profit', 0)
+            
+            self.mt5.modify_position(ticket, new_sl, tp)
+            # Update trade in active trades
+            for t in st.session_state.active_trades:
+                if t['ticket'] == ticket:
+                    t['stop_loss'] = new_sl
+                    break
+        except Exception as e:
+            print(f"Error modifying SL: {e}")
+    
+    def check_daily_loss_limit(self, settings: Dict) -> bool:
+        """Check if daily loss limit is reached"""
+        # Reset daily loss if new day
+        if datetime.datetime.now().date() != st.session_state.last_trade_date:
+            st.session_state.daily_loss = 0.0
+            st.session_state.last_trade_date = datetime.datetime.now().date()
+        
+        return st.session_state.daily_loss >= settings['max_daily_loss']
+    
+    def check_spread_filter(self, symbol: str, settings: Dict) -> bool:
+        """Check if spread is acceptable for trading"""
+        if not settings['spread_filter_enabled']:
+            return True
+            
+        try:
+            symbol_info = self.mt5.get_symbol_info(symbol)
+            if 'error' not in symbol_info:
+                spread_pips = symbol_info.get('spread', 0)
+                return spread_pips <= settings['max_spread_pips']
+        except:
+            pass
+        
+        return False
+    
+    def add_trade(self, trade_info: Dict):
+        """Add new trade to active trades list"""
+        trade = {
+            'ticket': trade_info['order'],
+            'symbol': trade_info['symbol'],
+            'type': trade_info['type'],
+            'volume': trade_info['volume'],
+            'entry_price': trade_info['price'],
+            'stop_loss': trade_info['sl'],
+            'take_profit': trade_info['tp'],
+            'open_time': datetime.datetime.now(),
+            'original_sl': trade_info['sl']
+        }
+        st.session_state.active_trades.append(trade)
