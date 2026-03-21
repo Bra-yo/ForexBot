@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 import sys
 from pathlib import Path
 import random
+import subprocess
+import threading
+import time
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -18,6 +21,7 @@ from technical_analysis import TechnicalAnalysis
 from brokers.mt5_connector import MT5Connector
 from risk_management import RiskManager
 from trade_manager import TradeManager
+from trading_engine import pass_login_to_engine
 
 # Configure page
 st.set_page_config(
@@ -25,6 +29,21 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============ TRADING ENGINE MANAGEMENT ============
+def start_trading_engine():
+    """Start the trading engine in background"""
+    try:
+        # Start trading engine in separate process
+        engine_script = Path(__file__).parent / "trading_engine.py"
+        subprocess.Popen([
+            sys.executable, str(engine_script)
+        ], creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
+        print("🚀 Trading engine started in background")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to start trading engine: {e}")
+        return False
 
 # ============ TRADING CHATBOT KNOWLEDGE BASE ============
 TRADING_KNOWLEDGE = {
@@ -510,42 +529,49 @@ Could you rephrase your question or ask about a specific trading concept you'd l
     return random.choice(OFF_TOPIC_RESPONSES)
 
 def initialize_session_state():
-    """Initialize session state variables"""
+    """Initialize Streamlit session state variables"""
     if 'mt5_connected' not in st.session_state:
         st.session_state.mt5_connected = False
     if 'mt5_connector' not in st.session_state:
         st.session_state.mt5_connector = None
-    if 'show_login' not in st.session_state:
-        st.session_state.show_login = True
-    if 'selected_timeframe' not in st.session_state:
-        st.session_state.selected_timeframe = 'H1'
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'show_chatbot' not in st.session_state:
+        st.session_state.show_chatbot = False
     if 'last_refresh' not in st.session_state:
         st.session_state.last_refresh = datetime.now()
     if 'auto_refresh' not in st.session_state:
         st.session_state.auto_refresh = True
-    if 'selected_volume' not in st.session_state:
-        st.session_state.selected_volume = 0.1  # Default to 0.1 lots
-    if 'show_chatbot' not in st.session_state:
-        st.session_state.show_chatbot = False  # Chatbot hidden by default
     
-    # Advanced Bot Features
+    # Trading settings
+    if 'selected_currency_pair' not in st.session_state:
+        st.session_state.selected_currency_pair = 'EURUSD'
+    if 'selected_timeframe' not in st.session_state:
+        st.session_state.selected_timeframe = 'M15'
+    if 'trade_type' not in st.session_state:
+        st.session_state.trade_type = 'BOTH'
+    if 'selected_volume' not in st.session_state:
+        st.session_state.selected_volume = 0.01
+    
+    # Bot settings
     if 'active_trades' not in st.session_state:
-        st.session_state.active_trades = []  # Track open trades
+        st.session_state.active_trades = []
     if 'daily_loss' not in st.session_state:
-        st.session_state.daily_loss = 0.0  # Track daily losses
+        st.session_state.daily_loss = 0.0
     if 'last_trade_date' not in st.session_state:
         st.session_state.last_trade_date = datetime.now().date()
     if 'bot_settings' not in st.session_state:
         st.session_state.bot_settings = {
             'trailing_stop_enabled': True,
+            'trailing_profit_pips': 20,
+            'min_profit_pips': 10,
             'break_even_enabled': True,
             'time_exit_enabled': True,
-            'max_daily_loss': 100.0,  # $100 max daily loss
-            'max_trade_time_minutes': 10,  # Close trade after 10 minutes if no profit
-            'min_profit_pips': 10,  # Move to break-even at 10 pips
-            'trailing_profit_pips': 20,  # Move SL to +10 pips at 20 pips profit
+            'max_trade_time_minutes': 10,
             'spread_filter_enabled': True,
-            'max_spread_pips': 5  # Don't trade if spread > 5 pips
+            'max_spread_points': 3,
+            'max_daily_loss': 100.0,
+            'signal_exit_enabled': True
         }
 
 # ============ CUSTOM CSS ============
@@ -574,13 +600,13 @@ st.markdown("""
     margin-bottom: 30px;
 }
 
-/* Chatbot styling */
+/* Chatbot styling - Dark mode compatible */
 .chatbot-container {
-    background: #1e1e1e;
+    background: var(--secondary-background-color, #1e1e1e);
     border-radius: 15px;
     padding: 20px;
     margin-top: 20px;
-    border: 1px solid #333;
+    border: 1px solid var(--border-color, #333);
 }
 
 .chat-message {
@@ -591,20 +617,20 @@ st.markdown("""
 }
 
 .chat-user {
-    background: #2a5298;
+    background: var(--primary-color, #2a5298);
     color: white;
     margin-left: auto;
     text-align: right;
 }
 
 .chat-bot {
-    background: #2d2d2d;
-    color: #e0e0e0;
-    border-left: 4px solid #4CAF50;
+    background: var(--secondary-background-color, #2d2d2d);
+    color: var(--text-color, #e0e0e0);
+    border-left: 4px solid var(--success-color, #4CAF50);
 }
 
 .chat-header {
-    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    background: linear-gradient(90deg, var(--success-color, #4CAF50), var(--success-color-secondary, #8BC34A));
     color: white;
     padding: 15px;
     border-radius: 10px 10px 0 0;
@@ -614,9 +640,9 @@ st.markdown("""
     gap: 10px;
 }
 
-/* Logout button */
+/* Logout button - Theme compatible */
 .logout-btn {
-    background: linear-gradient(90deg, #f44336, #d32f2f) !important;
+    background: linear-gradient(90deg, var(--error-color, #f44336), var(--error-color-secondary, #d32f2f)) !important;
     color: white !important;
     border: none !important;
     padding: 10px 20px !important;
@@ -625,37 +651,82 @@ st.markdown("""
     width: 100% !important;
 }
 
-/* Signal styling */
+/* Signal styling - Theme compatible */
 .signal-buy {
-    background: linear-gradient(135deg, #4CAF50, #45a049);
+    background: linear-gradient(135deg, var(--success-color, #4CAF50), var(--success-color-secondary, #45a049));
     padding: 20px;
     border-radius: 10px;
     color: white;
 }
 
 .signal-sell {
-    background: linear-gradient(135deg, #f44336, #d32f2f);
+    background: linear-gradient(135deg, var(--error-color, #f44336), var(--error-color-secondary, #d32f2f));
     padding: 20px;
     border-radius: 10px;
     color: white;
 }
 
 .signal-wait {
-    background: linear-gradient(135deg, #ff9800, #f57c00);
+    background: linear-gradient(135deg, var(--warning-color, #ff9800), var(--warning-color-secondary, #f57c00));
     padding: 20px;
     border-radius: 10px;
     color: white;
 }
 
-/* Status indicators */
+/* Status indicators - Theme compatible */
 .status-connected {
-    color: #4CAF50;
+    color: var(--success-color, #4CAF50);
     font-weight: bold;
 }
 
 .status-disconnected {
-    color: #f44336;
+    color: var(--error-color, #f44336);
     font-weight: bold;
+}
+
+/* Dark mode specific adjustments */
+@media (prefers-color-scheme: dark) {
+    .chatbot-container {
+        background: #2d2d2d;
+        border-color: #404040;
+    }
+    
+    .chat-bot {
+        background: #3d3d3d;
+        color: #ffffff;
+    }
+}
+
+/* Light mode specific adjustments */
+@media (prefers-color-scheme: light) {
+    .chatbot-container {
+        background: #f8f9fa;
+        border-color: #dee2e6;
+    }
+    
+    .chat-bot {
+        background: #e9ecef;
+        color: #212529;
+    }
+}
+
+/* CSS Variables for theme compatibility */
+:root {
+    --warning-background: #fff3cd;
+    --warning-border: #ffc107;
+    --warning-color: #856404;
+    --error-background: #ffebee;
+    --error-border: #f44336;
+    --error-color: #d32f2f;
+}
+
+[data-testid="stAppViewContainer"].dark {
+    --warning-background: #664d03;
+    --warning-border: #ff6b35;
+    --warning-color: #ffecb5;
+    --error-background: #4a1e1e;
+    --error-border: #d32f2f;
+    --error-color: #ff6b6b;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -671,7 +742,7 @@ def render_login_page():
         st.markdown("""
         <div style="text-align: center; margin-top: 50px;">
             <h1 style="font-size: 3em; margin-bottom: 10px;">🎯 BrayoForexBot</h1>
-            <h2 style="color: #666; margin-bottom: 40px;">Professional Trading Dashboard</h2>
+            <h2 style="color: var(--text-color, #666); margin-bottom: 40px;">Professional Trading Dashboard</h2>
         </div>
         """, unsafe_allow_html=True)
         
@@ -707,8 +778,18 @@ def render_login_page():
                 if not mt5_login or not mt5_password:
                     st.error("⚠️ Please enter both login and password")
                 else:
-                    with st.spinner("🔄 Connecting to MT5..."):
+                    with st.spinner("🔄 Connecting to MT5 and starting trading engine..."):
                         try:
+                            # Start trading engine first
+                            if not st.session_state.get('engine_started', False):
+                                if start_trading_engine():
+                                    st.session_state.engine_started = True
+                                    time.sleep(2)  # Give engine time to start
+                                else:
+                                    st.error("❌ Failed to start trading engine")
+                                    return
+                            
+                            # Connect dashboard to MT5
                             connector = MT5Connector()
                             
                             if connector.initialize(
@@ -716,8 +797,19 @@ def render_login_page():
                                 password=mt5_password,
                                 server=mt5_server
                             ):
+                                # Pass credentials to trading engine
+                                if pass_login_to_engine(int(mt5_login), mt5_password, mt5_server):
+                                    st.success("✅ Credentials passed to trading engine!")
+                                else:
+                                    st.warning("⚠️ Trading engine not ready, will retry...")
+                                
                                 st.session_state.mt5_connected = True
                                 st.session_state.mt5_connector = connector
+                                st.session_state.login_credentials = {
+                                    'login': int(mt5_login),
+                                    'password': mt5_password,
+                                    'server': mt5_server
+                                }
                                 st.success("✅ Connected to MT5 successfully!")
                                 st.balloons()
                                 st.rerun()
@@ -729,8 +821,8 @@ def render_login_page():
         # Security notice
         st.markdown("""
         <div style="
-            background: #fff3cd;
-            border: 1px solid #ffc107;
+            background: var(--warning-background, #fff3cd);
+            border: 1px solid var(--warning-border, #ffc107);
             border-radius: 10px;
             padding: 15px;
             margin-top: 20px;
@@ -738,7 +830,7 @@ def render_login_page():
             margin-left: auto;
             margin-right: auto;
         ">
-            <p style="margin: 0; color: #856404;">
+            <p style="margin: 0; color: var(--warning-color, #856404);">
                 <strong>🔒 Security Notice:</strong><br>
                 Your credentials are used only to connect to MT5 and are not stored. 
                 This dashboard runs locally on your machine.
@@ -751,16 +843,16 @@ def render_login_page():
         <div style="margin-top: 50px; text-align: center;">
             <h3>✨ Features</h3>
             <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; margin-top: 20px;">
-                <div style="background: #f0f0f0; padding: 15px; border-radius: 10px; min-width: 150px;">
+                <div style="background: var(--secondary-background-color, #f0f0f0); padding: 15px; border-radius: 10px; min-width: 150px; color: var(--text-color, #333);">
                     📊 Live Signals
                 </div>
-                <div style="background: #f0f0f0; padding: 15px; border-radius: 10px; min-width: 150px;">
+                <div style="background: var(--secondary-background-color, #f0f0f0); padding: 15px; border-radius: 10px; min-width: 150px; color: var(--text-color, #333);">
                     🤖 AI Assistant
                 </div>
-                <div style="background: #f0f0f0; padding: 15px; border-radius: 10px; min-width: 150px;">
+                <div style="background: var(--secondary-background-color, #f0f0f0); padding: 15px; border-radius: 10px; min-width: 150px; color: var(--text-color, #333);">
                     📈 Real-time Data
                 </div>
-                <div style="background: #f0f0f0; padding: 15px; border-radius: 10px; min-width: 150px;">
+                <div style="background: var(--secondary-background-color, #f0f0f0); padding: 15px; border-radius: 10px; min-width: 150px; color: var(--text-color, #333);">
                     🛡️ Risk Management
                 </div>
             </div>
@@ -818,6 +910,25 @@ def render_sidebar_logged_in():
         st.markdown("---")
         st.subheader("📊 Data Settings")
         
+        # Currency Pair Selector
+        currency_pairs = {
+            'EURUSD': 'EUR/USD',
+            'GBPUSD': 'GBP/USD', 
+            'USDJPY': 'USD/JPY',
+            'AUDUSD': 'AUD/USD',
+            'USDCAD': 'USD/CAD',
+            'EURGBP': 'EUR/GBP',
+            'EURJPY': 'EUR/JPY'
+        }
+        
+        selected_pair = st.selectbox(
+            "📈 Currency Pair",
+            options=list(currency_pairs.keys()),
+            format_func=lambda x: currency_pairs[x],
+            index=0 if 'selected_currency_pair' not in st.session_state else list(currency_pairs.keys()).index(st.session_state.selected_currency_pair)
+        )
+        st.session_state.selected_currency_pair = selected_pair
+        
         # Timeframe selector
         timeframe_options = {
             'M1': '1 Minute',
@@ -826,18 +937,29 @@ def render_sidebar_logged_in():
             'M30': '30 Minutes',
             'H1': '1 Hour',
             'H4': '4 Hours',
+            'D1': 'Daily'
         }
-        timeframes = list(timeframe_options.keys())
-        selected_tf = st.selectbox(
-            "Select Timeframe:",
-            options=timeframes,
-            index=timeframes.index(st.session_state.selected_timeframe),
-            key="timeframe_selector"
+        
+        st.session_state.selected_timeframe = st.selectbox(
+            "⏱️ Timeframe",
+            options=list(timeframe_options.keys()),
+            format_func=lambda x: timeframe_options[x],
+            index=0 if 'selected_timeframe' not in st.session_state else list(timeframe_options.keys()).index(st.session_state.selected_timeframe)
         )
         
-        if selected_tf != st.session_state.selected_timeframe:
-            st.session_state.selected_timeframe = selected_tf
-            st.rerun()
+        # Trade Type Selector
+        trade_types = {
+            'BOTH': 'Both BUY & SELL',
+            'BUY_ONLY': 'BUY Signals Only',
+            'SELL_ONLY': 'SELL Signals Only'
+        }
+        
+        st.session_state.trade_type = st.selectbox(
+            "🎯 Trade Type",
+            options=list(trade_types.keys()),
+            format_func=lambda x: trade_types[x],
+            index=0 if 'trade_type' not in st.session_state else list(trade_types.keys()).index(st.session_state.trade_type)
+        )
         
         # Volume selection
         st.markdown("### 📏 Volume Size")
@@ -928,11 +1050,11 @@ def render_sidebar_logged_in():
                 value=st.session_state.bot_settings['min_profit_pips']
             )
             
-            st.session_state.bot_settings['max_spread_pips'] = st.number_input(
+            st.session_state.bot_settings['max_spread_points'] = st.number_input(
                 "Max Spread (pips)",
                 min_value=1,
                 max_value=20,
-                value=st.session_state.bot_settings['max_spread_pips']
+                value=st.session_state.bot_settings['max_spread_points']
             )
         
         # Active Trades Monitor
@@ -969,12 +1091,13 @@ def render_sidebar_logged_in():
         # Safety warning
         st.markdown("""
         <div style="
-            background: #ffebee;
-            border: 1px solid #f44336;
+            background: var(--error-background, #ffebee);
+            border: 1px solid var(--error-border, #f44336);
             border-radius: 5px;
             padding: 10px;
             margin-top: 20px;
             font-size: 0.9em;
+            color: var(--error-color, #d32f2f);
         ">
             <strong>⚠️ Trading Risk:</strong><br>
             Forex trading involves significant risk. 
@@ -1003,7 +1126,7 @@ def render_chatbot():
         if msg['role'] == 'user':
             st.markdown(f"""
             <div style="display: flex; justify-content: flex-end; margin: 5px 0;">
-                <div style="background: #2a5298; color: white; padding: 10px 15px; border-radius: 15px 15px 0 15px; max-width: 70%;">
+                <div style="background: var(--primary-color, #2a5298); color: white; padding: 10px 15px; border-radius: 15px 15px 0 15px; max-width: 70%;">
                     {msg['content']}
                 </div>
             </div>
@@ -1011,8 +1134,8 @@ def render_chatbot():
         else:
             st.markdown(f"""
             <div style="display: flex; justify-content: flex-start; margin: 5px 0;">
-                <div style="background: #2d2d2d; color: #e0e0e0; padding: 10px 15px; border-radius: 15px 15px 15px 0; max-width: 70%; border-left: 4px solid #4CAF50;">
-                    <span style="color: #4CAF50; font-weight: bold;">🤖 Assistant:</span><br>
+                <div style="background: var(--secondary-background-color, #2d2d2d); color: var(--text-color, #e0e0e0); padding: 10px 15px; border-radius: 15px 15px 15px 0; max-width: 70%; border-left: 4px solid var(--success-color, #4CAF50);">
+                    <span style="color: var(--success-color, #4CAF50); font-weight: bold;">🤖 Assistant:</span><br>
                     {msg['content'].replace(chr(10), '<br>')}
                 </div>
             </div>
@@ -1063,12 +1186,45 @@ def render_chatbot():
 
 
 # ============ MAIN DASHBOARD (POST-LOGIN) ============
+def is_market_open():
+    """Check if the forex market is currently open"""
+    import datetime
+    
+    now = datetime.datetime.now()
+    weekday = now.weekday()  # 0=Monday, 6=Sunday
+    
+    # Check if it's weekend (Saturday or Sunday)
+    if weekday >= 5:  # Saturday (5) or Sunday (6)
+        return False, "Market closed (Weekend)"
+    
+    # Check if it's within trading hours (simplified for major sessions)
+    hour = now.hour
+    
+    # Early Asian session (Tokyo) - 00:00-09:00 UTC
+    # London session - 08:00-16:00 UTC  
+    # NY session - 13:00-22:00 UTC
+    # Combined major sessions: 08:00-22:00 UTC
+    
+    if hour < 8 or hour >= 22:
+        return False, "Market closed (Outside trading hours)"
+    
+    return True, "Market open"
+
 def render_main_dashboard():
-    """Render main trading dashboard after login"""
     st.title("🎯 BrayoForexBot - Live Trading Signals")
     
-    # Auto-refresh mechanism
-    if st.session_state.get('auto_refresh', True):
+    # Check market status
+    market_open, market_status = is_market_open()
+    
+    # Display market status prominently
+    if market_open:
+        st.success(f"🟢 {market_status}")
+    else:
+        st.error(f"🔴 {market_status}")
+        st.warning("⚠️ Trading is not available during market closure. Please wait for market to open.")
+    
+    # Auto-refresh mechanism (only when market is open)
+    if market_open and st.session_state.get('auto_refresh', True):
         time_since_refresh = (datetime.now() - st.session_state.last_refresh).seconds
         if time_since_refresh >= 3:  # Refresh every 3 seconds for real-time monitoring
             st.session_state.last_refresh = datetime.now()
@@ -1077,11 +1233,12 @@ def render_main_dashboard():
     # Signal generation section
     st.markdown("### 🎯 Live Trading Signal")
     
-    # Show current timeframe
-    st.caption(f"Current Timeframe: **{st.session_state.selected_timeframe}** | Auto-refresh: **{'ON' if st.session_state.get('auto_refresh', True) else 'OFF'}**")
+    # Show current timeframe and market status
+    market_open, market_status = is_market_open()
+    st.caption(f"Current Timeframe: **{st.session_state.selected_timeframe}** | Market: **{market_status}** | Auto-refresh: **{'ON' if st.session_state.get('auto_refresh', True) else 'OFF'}**")
     
-    # Monitor active trades on every refresh (REAL-TIME AUTOMATION)
-    if st.session_state.mt5_connected and st.session_state.mt5_connector:
+    # Monitor active trades only when market is open
+    if market_open and st.session_state.mt5_connected and st.session_state.mt5_connector:
         try:
             trade_manager = TradeManager(st.session_state.mt5_connector)
             
@@ -1110,8 +1267,11 @@ def render_main_dashboard():
         except Exception as e:
             print(f"DEBUG - Error in trade monitoring: {e}")
             st.error(f"❌ Error monitoring trades: {e}")
+    elif not market_open:
+        st.info("📊 Trade monitoring is paused during market closure. Active trades will be monitored when market reopens.")
     
-    if st.session_state.mt5_connected and st.session_state.mt5_connector:
+    # Only show signal generation when market is open
+    if market_open and st.session_state.mt5_connected and st.session_state.mt5_connector:
         try:
             with st.spinner("📊 Analyzing market data..."):
                 # Fetch historical data based on selected timeframe
@@ -1122,9 +1282,10 @@ def render_main_dashboard():
                     'M1': 1, 'M5': 2, 'M15': 3, 'M30': 5,
                     'H1': 7, 'H4': 30, 'D1': 90, 'W1': 365
                 }
-                lookback_days = tf_days_map.get(st.session_state.selected_timeframe, 7)
-                start_date = end_date - timedelta(days=lookback_days)
                 
+                start_date = end_date - datetime(days=tf_days_map.get(st.session_state.selected_timeframe, 7))
+                
+                # Fetch historical data
                 historical_data = st.session_state.mt5_connector.get_historical_data(
                     symbol="EURUSD",
                     timeframe=st.session_state.selected_timeframe,
@@ -1132,273 +1293,104 @@ def render_main_dashboard():
                     end_date=end_date
                 )
                 
-                if historical_data is not None and len(historical_data) > 0:
+                if historical_data and 'error' not in historical_data:
+                    # Calculate indicators and generate signals
+                    rsi = calculate_rsi(historical_data['close'], 14)
+                    sma = calculate_sma(historical_data['close'], 20)
+                    ema = calculate_ema(historical_data['close'], 20)
+                    
+                    latest_rsi = rsi.iloc[-1]
+                    latest_sma = sma.iloc[-1]
+                    latest_ema = ema.iloc[-1]
                     current_price = historical_data['close'].iloc[-1]
                     
-                    st.success(f"✅ Using live price from MT5: **{current_price:.5f}** (from {len(historical_data)} data points)")
-                    
-                    # Calculate indicators
-                    ta = TechnicalAnalysis()
-                    rsi = ta.calculate_rsi(historical_data['close'], period=14)
-                    sma_fast, sma_slow = ta.calculate_moving_averages(historical_data['close'])
-                    
-                    latest_rsi = rsi.iloc[-1] if not rsi.empty else 50
-                    latest_sma = sma_fast.iloc[-1] if not sma_fast.empty else current_price
-                    latest_ema = sma_slow.iloc[-1] if not sma_slow.empty else current_price
-                    
-                    # Enhanced signal generation with more indicators
-                    signal_strength = 0
-                    reasons = []
-                    confidence_factors = []
-                    
-                    # RSI Analysis (more nuanced)
-                    if latest_rsi < 25:
-                        signal_strength += 3
-                        reasons.append(f"RSI strongly oversold ({latest_rsi:.1f})")
-                        confidence_factors.append("Strong RSI oversold signal")
-                    elif latest_rsi < 35:
-                        signal_strength += 2
-                        reasons.append(f"RSI oversold ({latest_rsi:.1f})")
-                        confidence_factors.append("RSI oversold")
-                    elif latest_rsi < 45:
-                        signal_strength += 1
-                        reasons.append(f"RSI approaching oversold ({latest_rsi:.1f})")
-                        confidence_factors.append("RSI bearish momentum")
-                    elif latest_rsi > 75:
-                        signal_strength -= 3
-                        reasons.append(f"RSI strongly overbought ({latest_rsi:.1f})")
-                        confidence_factors.append("Strong RSI overbought signal")
-                    elif latest_rsi > 65:
-                        signal_strength -= 2
-                        reasons.append(f"RSI overbought ({latest_rsi:.1f})")
-                        confidence_factors.append("RSI overbought")
-                    elif latest_rsi > 55:
-                        signal_strength -= 1
-                        reasons.append(f"RSI approaching overbought ({latest_rsi:.1f})")
-                        confidence_factors.append("RSI bullish momentum")
-                    else:
-                        confidence_factors.append("RSI neutral")
-                    
-                    # Moving Average Analysis (more detailed)
-                    ema_sma_diff = latest_ema - latest_sma
-                    ema_sma_pct_diff = (ema_sma_diff / latest_sma) * 100
-                    
-                    if ema_sma_pct_diff > 0.1:  # EMA significantly above SMA
-                        signal_strength += 2
-                        reasons.append(f"EMA strongly above SMA (+{ema_sma_pct_diff:.2f}%)")
-                        confidence_factors.append("Strong uptrend")
-                    elif ema_sma_pct_diff > 0.02:  # EMA slightly above SMA
-                        signal_strength += 1
-                        reasons.append(f"EMA above SMA (+{ema_sma_pct_diff:.2f}%)")
-                        confidence_factors.append("Moderate uptrend")
-                    elif ema_sma_pct_diff < -0.1:  # EMA significantly below SMA
-                        signal_strength -= 2
-                        reasons.append(f"EMA strongly below SMA ({ema_sma_pct_diff:.2f}%)")
-                        confidence_factors.append("Strong downtrend")
-                    elif ema_sma_pct_diff < -0.02:  # EMA slightly below SMA
-                        signal_strength -= 1
-                        reasons.append(f"EMA below SMA ({ema_sma_pct_diff:.2f}%)")
-                        confidence_factors.append("Moderate downtrend")
-                    else:
-                        confidence_factors.append("MA trend neutral")
-                    
-                    # Price Action Analysis (add price momentum)
-                    if len(historical_data) >= 5:
-                        price_change = (historical_data['close'].iloc[-1] - historical_data['close'].iloc[-5]) / historical_data['close'].iloc[-5] * 100
-                        if price_change > 0.3:
-                            signal_strength += 1
-                            reasons.append(f"Strong upward momentum (+{price_change:.2f}% in 5 periods)")
-                            confidence_factors.append("Price momentum bullish")
-                        elif price_change > 0.1:
-                            signal_strength += 0.5
-                            reasons.append(f"Moderate upward momentum (+{price_change:.2f}% in 5 periods)")
-                            confidence_factors.append("Price momentum slightly bullish")
-                        elif price_change < -0.3:
-                            signal_strength -= 1
-                            reasons.append(f"Strong downward momentum ({price_change:.2f}% in 5 periods)")
-                            confidence_factors.append("Price momentum bearish")
-                        elif price_change < -0.1:
-                            signal_strength -= 0.5
-                            reasons.append(f"Moderate downward momentum ({price_change:.2f}% in 5 periods)")
-                            confidence_factors.append("Price momentum slightly bearish")
-                        else:
-                            confidence_factors.append("Price momentum neutral")
-                    
-                    # Volatility Analysis (using ATR if available)
-                    if len(historical_data) >= 14:
-                        high_low_diff = historical_data['high'] - historical_data['low']
-                        avg_range = high_low_diff.rolling(14).mean().iloc[-1]
-                        current_range = high_low_diff.iloc[-1]
-                        
-                        if current_range > avg_range * 1.5:
-                            reasons.append("High volatility detected")
-                            confidence_factors.append("High volatility")
-                        elif current_range < avg_range * 0.5:
-                            reasons.append("Low volatility detected")
-                            confidence_factors.append("Low volatility")
-                    
-                    # Enhanced decision logic with more granular levels
-                    if signal_strength >= 4:
-                        decision = "STRONG BUY"
-                        confidence = min(95, 70 + signal_strength * 5)
-                        signal_color = "signal-buy"
-                        emoji = "🟢"
-                    elif signal_strength >= 2:
-                        decision = "BUY"
-                        confidence = min(85, 60 + signal_strength * 8)
-                        signal_color = "signal-buy"
-                        emoji = "🟢"
-                    elif signal_strength >= 0.5:
-                        decision = "WEAK BUY"
-                        confidence = min(75, 55 + signal_strength * 10)
-                        signal_color = "signal-wait"
-                        emoji = "🟡"
-                    elif signal_strength >= -0.5:
-                        decision = "NEUTRAL"
-                        confidence = 50 + abs(signal_strength) * 10
-                        signal_color = "signal-wait"
-                        emoji = "🟡"
-                    elif signal_strength >= -2:
-                        decision = "WEAK SELL"
-                        confidence = min(75, 55 + abs(signal_strength) * 10)
-                        signal_color = "signal-wait"
-                        emoji = "🟡"
-                    elif signal_strength >= -4:
-                        decision = "SELL"
-                        confidence = min(85, 60 + abs(signal_strength) * 8)
-                        signal_color = "signal-sell"
-                        emoji = "🔴"
-                    else:
-                        decision = "STRONG SELL"
-                        confidence = min(95, 70 + abs(signal_strength) * 5)
-                        signal_color = "signal-sell"
-                        emoji = "�"
-                    
-                    # Add analysis summary
-                    analysis_summary = f"Signal Strength: {signal_strength:+.1f} | Factors: {len(confidence_factors)} analyzed"
-                    reasons.insert(0, analysis_summary)
-                    
-                    # Calculate SL/TP with proper MT5 symbol requirements
-                    try:
-                        # Get symbol info for minimum distances
-                        symbol_info = st.session_state.mt5_connector.get_symbol_info("EURUSD")
-                        if 'error' not in symbol_info:
-                            # Get minimum stop level from MT5
-                            min_stop_level = symbol_info.get('trade_stops_level', 0)
-                            point = symbol_info.get('point', 0.00001)
-                            
-                            # Calculate minimum required pips
-                            if min_stop_level > 0:
-                                min_pips = max(min_stop_level / point, 5)  # At least 5 pips
-                            else:
-                                min_pips = 5  # Default minimum
-                            stop_loss_pips = max(20, min_pips)  # Use larger of 20 pips or minimum
-                        else:
-                            # Fallback values
-                            stop_loss_pips = 20
-                            point = 0.00001
-                    except Exception as e:
-                        # Fallback if symbol info fails
-                        stop_loss_pips = 20
-                        point = 0.00001
-                    
-                    # Use conservative approach: wider stops to be safe
-                    stop_loss_pips = max(stop_loss_pips, 30)  # Ensure at least 30 pips
-                    
-                    if decision in ["BUY", "STRONG BUY"]:
-                        stop_loss_price = current_price - (stop_loss_pips * point)
-                        take_profit_price = current_price + (stop_loss_pips * point * 1.5)  # 1.5:1 RR
-                    elif decision in ["SELL", "STRONG SELL"]:
-                        stop_loss_price = current_price + (stop_loss_pips * point)
-                        take_profit_price = current_price - (stop_loss_pips * point * 1.5)  # 1.5:1 RR
-                    else:
-                        # For neutral/weak signals, use wider stops
-                        stop_loss_price = current_price - (stop_loss_pips * point)
-                        take_profit_price = current_price + (stop_loss_pips * point * 1.5)
-                    
-                    # Validate SL/TP prices are reasonable
-                    if stop_loss_price <= 0 or take_profit_price <= 0:
-                        st.error("❌ Invalid SL/TP calculated. Using fallback values.")
-                        stop_loss_price = current_price * 0.999  # 0.1% SL
-                        take_profit_price = current_price * 1.0015  # 0.15% TP
-                    
-                    # Use user-selected volume instead of calculated position size
-                    position_size = st.session_state.selected_volume
+                    # Generate trading signal
+                    decision, reasons, signal_strength = generate_signal(
+                        latest_rsi, latest_sma, latest_ema, current_price, historical_data
+                    )
                     
                     # Display signal
-                    col1, col2 = st.columns([2, 1])
+                    signal_color = {
+                        'BUY': '🟢', 'SELL': '🔴', 'HOLD': '🟡'
+                    }.get(decision, '⚪')
                     
+                    st.markdown(f"### {signal_color} Signal: {decision}")
+                    st.caption(f"Strength: {signal_strength}/10")
+                    
+                    # Calculate position size and SL/TP
+                    account_info = st.session_state.mt5_connector.get_account_info()
+                    balance = account_info.get('balance', 10000)
+                    
+                    # Use user-selected volume
+                    position_size = st.session_state.selected_volume
+                    
+                    # Calculate SL/TP based on ATR or fixed pips
+                    atr = calculate_atr(historical_data, 14)
+                    atr_value = atr.iloc[-1]
+                    
+                    # Use fixed pips for now (can be improved)
+                    sl_pips = 20  # 20 pips SL
+                    tp_pips = 30  # 30 pips TP
+                    
+                    if decision == 'BUY':
+                        stop_loss_price = current_price - (sl_pips * 0.0001)
+                        take_profit_price = current_price + (tp_pips * 0.0001)
+                    elif decision == 'SELL':
+                        stop_loss_price = current_price + (sl_pips * 0.0001)
+                        take_profit_price = current_price - (tp_pips * 0.0001)
+                    else:
+                        stop_loss_price = current_price
+                        take_profit_price = current_price
+                    
+                    # Display order details
+                    col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown(f"""
-                        <div class="{signal_color}">
-                            <h2>{emoji} {decision}</h2>
-                            <p><strong>Confidence:</strong> {confidence:.0f}%</p>
-                            <p><strong>Entry Price:</strong> {current_price:.5f}</p>
-                            <p><strong>Stop Loss:</strong> {stop_loss_price:.5f}</p>
-                            <p><strong>Take Profit:</strong> {take_profit_price:.5f}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        if st.button(f"📊 Place {decision} Order", use_container_width=True, 
+                                    type="primary" if decision != 'HOLD' else "secondary",
+                                    disabled=decision == 'HOLD'):
+                            try:
+                                # Check daily loss limit
+                                trade_manager = TradeManager(st.session_state.mt5_connector)
+                                if trade_manager.check_daily_loss_limit(st.session_state.bot_settings):
+                                    st.error("❌ Daily loss limit reached. Trading stopped.")
+                                    return
+                                
+                                # Check spread filter
+                                if not trade_manager.check_spread_filter(st.session_state.selected_currency_pair, st.session_state.bot_settings):
+                                    st.error("❌ Spread too high. Trade blocked.")
+                                    return
+                                
+                                result = st.session_state.mt5_connector.place_market_order(
+                                    symbol=st.session_state.selected_currency_pair,
+                                    order_type=decision.split()[-1],  # Get last word (BUY/SELL)
+                                    volume=position_size
+                                )
+                                if result.get('success'):
+                                    # Add to active trades
+                                    trade_info = {
+                                        'symbol': st.session_state.selected_currency_pair,
+                                        'type': decision.split()[-1],
+                                        'volume': position_size,
+                                        'price': current_price,
+                                        'sl': stop_loss_price,
+                                        'tp': take_profit_price
+                                    }
+                                    trade_manager.add_trade({**result, **trade_info})
+                                    st.success(f"✅ Order placed successfully! Ticket: {result.get('order')}")
+                                else:
+                                    st.error(f"❌ Order failed: {result.get('error', 'Unknown error')}")
+                            except Exception as e:
+                                st.error(f"❌ Error placing order: {e}")
                     
                     with col2:
-                        if decision not in ["NEUTRAL", "WAIT"]:
-                            st.metric("Position Size", f"{position_size:.2f} lots")
-                            st.metric("Risk Amount", f"${10000 * 0.02:.2f}")
-                            st.metric("Potential Reward", f"${10000 * 0.02 * 1.5:.2f}")
-                            
-                            # Add order placement button
-                            st.markdown("---")
-                            st.markdown("### 🎯 Order Placement")
-                            
-                            col1, col2 = st.columns([1, 1])
-                            with col1:
-                                if st.button(f"📈 Place {decision} Order", 
-                                           use_container_width=True,
-                                           type="primary"):
-                                    try:
-                                        # Initialize trade manager
-                                        trade_manager = TradeManager(st.session_state.mt5_connector)
-                                        
-                                        # Check daily loss limit
-                                        if trade_manager.check_daily_loss_limit(st.session_state.bot_settings):
-                                            st.error("❌ Daily loss limit reached. Trading stopped.")
-                                            return
-                                        
-                                        # Check spread filter
-                                        if not trade_manager.check_spread_filter("EURUSD", st.session_state.bot_settings):
-                                            st.error("❌ Spread too high. Trade blocked.")
-                                            return
-                                        
-                                        result = st.session_state.mt5_connector.place_market_order(
-                                            symbol="EURUSD",
-                                            order_type=decision.split()[-1],  # Get last word (BUY/SELL)
-                                            volume=position_size
-                                        )
-                                        if result.get('success'):
-                                            # Add to active trades
-                                            trade_info = {
-                                                'symbol': 'EURUSD',
-                                                'type': decision.split()[-1],
-                                                'volume': position_size,
-                                                'price': current_price,
-                                                'sl': stop_loss_price,
-                                                'tp': take_profit_price
-                                            }
-                                            trade_manager.add_trade({**result, **trade_info})
-                                            st.success(f"✅ Order placed successfully! Ticket: {result.get('order')}")
-                                        else:
-                                            st.error(f"❌ Order failed: {result.get('error', 'Unknown error')}")
-                                    except Exception as e:
-                                        st.error(f"❌ Error placing order: {e}")
-                            
-                            with col2:
-                                st.write("**Order Details:**")
-                                st.write(f"Type: {decision}")
-                                st.write(f"Volume: {position_size:.2f} lots")
-                                st.write(f"Entry: {current_price:.5f}")
-                                st.write(f"SL: {stop_loss_price:.5f}")
-                                st.write(f"TP: {take_profit_price:.5f}")
-                                st.write(f"SL Distance: {abs(current_price - stop_loss_price) / 0.00001:.0f} pips")
-                                st.write(f"TP Distance: {abs(take_profit_price - current_price) / 0.00001:.0f} pips")
+                        st.write("**Order Details:**")
+                        st.write(f"Type: {decision}")
+                        st.write(f"Volume: {position_size:.2f} lots")
+                        st.write(f"Entry: {current_price:.5f}")
+                        st.write(f"SL: {stop_loss_price:.5f}")
+                        st.write(f"TP: {take_profit_price:.5f}")
+                        st.write(f"SL Distance: {abs(current_price - stop_loss_price) / 0.00001:.0f} pips")
+                        st.write(f"TP Distance: {abs(take_profit_price - current_price) / 0.00001:.0f} pips")
                     
                     # Signal reasons
                     st.markdown("**📋 Signal Reasons:**")
@@ -1444,6 +1436,10 @@ def render_main_dashboard():
         except Exception as e:
             st.error(f"❌ Error generating signal: {e}")
             st.info("💡 Tip: Make sure MT5 is running and you have an active internet connection.")
+    elif not market_open:
+        st.warning("🔴 Market is currently closed. Signal generation and trading are not available.")
+        st.info("📅 Forex market hours: Monday - Friday, 08:00 - 22:00 UTC")
+        st.info("⏰ Please wait for the market to reopen to continue trading.")
     
     # Chatbot section
     render_chatbot()

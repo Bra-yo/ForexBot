@@ -7,7 +7,6 @@ from .mt5_connector import MT5Connector
 from .mt5_data_reader import MT5DataReader
 from .mt5_order_executor import MT5OrderExecutor, OrderRequest, OrderType
 from .mt5_streaming import MT5Streamer, TickData, BarData
-from .mt5_trading_engine import MT5TradingEngine
 
 __all__ = [
     'MT5Connector',
@@ -16,7 +15,6 @@ __all__ = [
     'OrderRequest',
     'OrderType',
     'MT5Streamer',
-    'TickData',
     'BarData',
     'MT5TradingEngine'
 ]

@@ -1,0 +1,15 @@
+{
+    "trailing_stop_enabled": true,
+    "trailing_profit_pips": 20,
+    "min_profit_pips": 10,
+    "break_even_enabled": true,
+    "time_exit_enabled": true,
+    "max_trade_time_minutes": 10,
+    "spread_filter_enabled": true,
+    "max_spread_points": 3,
+    "max_daily_loss": 100.0,
+    "signal_exit_enabled": true,
+    "selected_currency_pair": "EURUSD",
+    "selected_timeframe": "M15",
+    "trade_type": "BOTH"
+}
