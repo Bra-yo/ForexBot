@@ -13,15 +13,31 @@ import random
 import subprocess
 import threading
 import time
+import os
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
+
+# Import Config with fallback
+try:
+    from config import Config
+except ImportError:
+    class Config:
+        SL_PIPS = 50
+        TP_PIPS = 100
+        RSI_PERIOD = 14
+        RSI_OVERSOLD = 30
+        RSI_OVERBOUGHT = 70
+        MA_FAST_PERIOD = 20
+        MA_SLOW_PERIOD = 50
 
 from technical_analysis import TechnicalAnalysis
 from brokers.mt5_connector import MT5Connector
 from risk_management import RiskManager
 from trade_manager import TradeManager
 from trading_engine import pass_login_to_engine
+from advanced_telegram_assistant import AdvancedTelegramAssistant
+from market_scanner import MarketScanner
 
 # Configure page
 st.set_page_config(
@@ -543,6 +559,14 @@ def initialize_session_state():
     if 'auto_refresh' not in st.session_state:
         st.session_state.auto_refresh = True
     
+    # Telegram notifier
+    if 'telegram_notifier' not in st.session_state:
+        st.session_state.telegram_notifier = AdvancedTelegramAssistant()
+    
+    # Market scanner (optional integration)
+    if 'market_scanner' not in st.session_state:
+        st.session_state.market_scanner = None
+    
     # Trading settings
     if 'selected_currency_pair' not in st.session_state:
         st.session_state.selected_currency_pair = 'EURUSD'
@@ -1001,6 +1025,65 @@ def render_sidebar_logged_in():
         
         st.markdown("---")
         
+        # Telegram Notifications
+        st.subheader("📱 Advanced Telegram Alerts")
+        
+        # Show Telegram status
+        if st.session_state.telegram_notifier.enabled:
+            st.markdown('<span class="status-connected">● Advanced Telegram Connected</span>', unsafe_allow_html=True)
+            st.caption("✨ Interactive charts & buttons")
+        else:
+            st.markdown('<span class="status-disconnected">● Telegram Disconnected</span>', unsafe_allow_html=True)
+            st.caption("Check .env file for BOT_TOKEN and CHAT_ID")
+        
+        # Test Telegram button
+        if st.button("📱 Test Advanced Telegram", use_container_width=True):
+            if st.session_state.telegram_notifier.test_connection():
+                st.success("✅ Advanced Telegram test sent!")
+            else:
+                st.error("❌ Failed to send test")
+        
+        st.caption("🚀 Get charts + interactive buttons")
+        st.markdown("---")
+        
+        # Market Scanner Status
+        st.subheader("🔍 Market Scanner")
+        st.caption("Automatic multi-pair scanner")
+        
+        # Try to connect to running scanner
+        if st.session_state.market_scanner is None and st.session_state.mt5_connector:
+            try:
+                # Initialize scanner if MT5 is connected
+                telegram_assistant = AdvancedTelegramAssistant()
+                st.session_state.market_scanner = MarketScanner(
+                    st.session_state.mt5_connector, 
+                    telegram_assistant
+                )
+                st.session_state.market_scanner.scanning = True  # Assume running if started externally
+                st.success("✅ Connected to Market Scanner")
+            except Exception as e:
+                st.error(f"❌ Scanner connection failed: {e}")
+        
+        # Scanner status
+        if st.session_state.market_scanner and st.session_state.market_scanner.scanning:
+            st.markdown('<span class="status-connected">● Scanner Running</span>', unsafe_allow_html=True)
+            
+            # Show scanner info
+            st.write("**Status:** Active")
+            st.write("**Pairs:** 15 + Gold")
+            st.write("**Timeframes:** 7 (M5-H4)")
+            st.write("**Alerts:** Telegram enabled")
+            
+            # Refresh button
+            if st.button("🔄 Refresh Scanner Status", use_container_width=True):
+                st.rerun()
+        else:
+            st.markdown('<span class="status-disconnected">● Scanner Not Running</span>', unsafe_allow_html=True)
+            st.caption("Start: start_trading_monitor.bat")
+        
+        st.caption("📊 Auto-starts with system")
+        st.markdown("---")
+        
         # Bot Settings Panel
         st.markdown("---")
         st.markdown("### 🤖 Bot Settings")
@@ -1192,22 +1275,18 @@ def is_market_open():
     
     now = datetime.datetime.now()
     weekday = now.weekday()  # 0=Monday, 6=Sunday
-    
-    # Check if it's weekend (Saturday or Sunday)
-    if weekday >= 5:  # Saturday (5) or Sunday (6)
-        return False, "Market closed (Weekend)"
-    
-    # Check if it's within trading hours (simplified for major sessions)
     hour = now.hour
     
-    # Early Asian session (Tokyo) - 00:00-09:00 UTC
-    # London session - 08:00-16:00 UTC  
-    # NY session - 13:00-22:00 UTC
-    # Combined major sessions: 08:00-22:00 UTC
+    # Check if it's Saturday (all day)
+    if weekday == 5:  # Saturday
+        return False, "Weekend closure (Forex market closed)"
     
-    if hour < 8 or hour >= 22:
-        return False, "Market closed (Outside trading hours)"
+    # Check if it's Sunday before 22:00 UTC
+    if weekday == 6 and hour < 22:  # Sunday before 22:00 UTC
+        return False, "Weekend closure (Forex market closed)"
     
+    # Forex market is open from Sunday 22:00 UTC to Friday 22:00 UTC
+    # All other times are valid trading hours
     return True, "Market open"
 
 def render_main_dashboard():
@@ -1283,39 +1362,265 @@ def render_main_dashboard():
                     'H1': 7, 'H4': 30, 'D1': 90, 'W1': 365
                 }
                 
-                start_date = end_date - datetime(days=tf_days_map.get(st.session_state.selected_timeframe, 7))
+                start_date = end_date - timedelta(days=tf_days_map.get(st.session_state.selected_timeframe, 7))
                 
                 # Fetch historical data
                 historical_data = st.session_state.mt5_connector.get_historical_data(
-                    symbol="EURUSD",
+                    symbol=st.session_state.selected_currency_pair,
                     timeframe=st.session_state.selected_timeframe,
                     start_date=start_date,
                     end_date=end_date
                 )
                 
-                if historical_data and 'error' not in historical_data:
+                if historical_data is not None and 'error' not in historical_data:
                     # Calculate indicators and generate signals
-                    rsi = calculate_rsi(historical_data['close'], 14)
-                    sma = calculate_sma(historical_data['close'], 20)
-                    ema = calculate_ema(historical_data['close'], 20)
+                    ta = TechnicalAnalysis()
+                    rsi = ta.calculate_rsi(historical_data['close'], 14)
+                    sma, ema = ta.calculate_moving_averages(historical_data['close'], 20, 50)  # Fast SMA=20, Slow EMA=50
                     
                     latest_rsi = rsi.iloc[-1]
                     latest_sma = sma.iloc[-1]
                     latest_ema = ema.iloc[-1]
                     current_price = historical_data['close'].iloc[-1]
                     
-                    # Generate trading signal
-                    decision, reasons, signal_strength = generate_signal(
-                        latest_rsi, latest_sma, latest_ema, current_price, historical_data
+                    # Add indicators to data for signal analysis
+                    analysis_data = historical_data.copy()
+                    analysis_data['rsi'] = rsi
+                    analysis_data['ma_fast'] = sma
+                    analysis_data['ma_slow'] = ema
+                    
+                    # Calculate additional indicators needed for signal analysis
+                    macd_result = ta.calculate_macd(historical_data['close'])
+                    bb_result = ta.calculate_bollinger_bands(historical_data['close'])
+                    
+                    analysis_data['macd'] = macd_result[0]  # MACD line
+                    analysis_data['macd_signal'] = macd_result[1]  # Signal line
+                    analysis_data['bb_upper'] = bb_result[0]  # Upper band
+                    analysis_data['bb_lower'] = bb_result[2]  # Lower band
+                    
+                    # Generate ADVANCED trading signal with professional analysis
+                    advanced_signal = ta.advanced_signal_analysis(
+                        st.session_state.mt5_connector,
+                        analysis_data,
+                        st.session_state.selected_currency_pair,
+                        st.session_state.selected_timeframe
                     )
                     
-                    # Display signal
-                    signal_color = {
-                        'BUY': '🟢', 'SELL': '🔴', 'HOLD': '🟡'
-                    }.get(decision, '⚪')
+                    decision = advanced_signal['signal']
+                    signal_strength = advanced_signal['confidence']
+                    reasons = advanced_signal['reasons']
                     
-                    st.markdown(f"### {signal_color} Signal: {decision}")
-                    st.caption(f"Strength: {signal_strength}/10")
+                    # Use structure-based SL/TP if available
+                    if advanced_signal.get('structure_sl') and advanced_signal.get('structure_tp'):
+                        stop_loss_price = advanced_signal['structure_sl']
+                        take_profit_price = advanced_signal['structure_tp']
+                    else:
+                        # Fallback to fixed SL/TP
+                        if decision == 'BUY':
+                            stop_loss_price = current_price - (Config.SL_PIPS * 0.0001)
+                            take_profit_price = current_price + (Config.TP_PIPS * 0.0001)
+                        elif decision == 'SELL':
+                            stop_loss_price = current_price + (Config.SL_PIPS * 0.0001)
+                            take_profit_price = current_price - (Config.TP_PIPS * 0.0001)
+                        else:
+                            stop_loss_price = current_price
+                            take_profit_price = current_price
+                    
+                    # Debug output to console
+                    print(f"DEBUG - ADVANCED Signal Analysis:")
+                    print(f"  Signal: {decision}")
+                    print(f"  Confidence: {signal_strength}%")
+                    print(f"  Market State: {advanced_signal['market_state']}")
+                    print(f"  HTF Trend: {advanced_signal['htf_trend']}")
+                    print(f"  Trade Blocked: {advanced_signal['trade_blocked']}")
+                    print(f"  Block Reason: {advanced_signal['block_reason']}")
+                    print(f"  Entry Confirmed: {advanced_signal['entry_confirmed']}")
+                    print(f"  Risk:Reward: {advanced_signal['risk_reward']['ratio']:.1f}:1")
+                    print(f"  Structure SL: {advanced_signal.get('structure_sl', 0):.5f}")
+                    print(f"  Structure TP: {advanced_signal.get('structure_tp', 0):.5f}")
+                    print(f"  Reasons: {reasons}")
+                    
+                    # Visual debug info
+                    with st.expander("🔍 Advanced Debug Information", expanded=False):
+                        st.write(f"**Signal:** {decision}")
+                        st.write(f"**Confidence:** {signal_strength}%")
+                        st.write(f"**Market State:** {advanced_signal['market_state']}")
+                        st.write(f"**HTF Trend:** {advanced_signal['htf_trend']}")
+                        st.write(f"**Trade Blocked:** {advanced_signal['trade_blocked']}")
+                        if advanced_signal['trade_blocked']:
+                            st.error(f"**Block Reason:** {advanced_signal['block_reason']}")
+                        st.write(f"**Entry Confirmed:** {advanced_signal['entry_confirmed']}")
+                        st.write(f"**Risk:Reward:** {advanced_signal['risk_reward']['ratio']:.1f}:1")
+                        st.write(f"**Structure SL:** {advanced_signal.get('structure_sl', 0):.5f}")
+                        st.write(f"**Structure TP:** {advanced_signal.get('structure_tp', 0):.5f}")
+                        st.write(f"**Reasons:** {reasons}")
+                        
+                        # Show all factors
+                        if 'factors' in advanced_signal:
+                            st.write("**Factors:**")
+                            for factor, value in advanced_signal['factors'].items():
+                                st.write(f"  - {factor}: {value}")
+                    
+                    # Send Telegram alert for valid trade setup
+                    if not advanced_signal['trade_blocked'] and decision in ['BUY', 'SELL']:
+                        # Prepare signal data for Telegram
+                        telegram_signal_data = {
+                            'symbol': st.session_state.selected_currency_pair,
+                            'signal': decision,
+                            'confidence': signal_strength,
+                            'market_state': advanced_signal['market_state'],
+                            'htf_trend': advanced_signal['htf_trend'],
+                            'entry_price': current_price,
+                            'structure_sl': advanced_signal.get('structure_sl', 0),
+                            'structure_tp': advanced_signal.get('structure_tp', 0),
+                            'risk_reward': advanced_signal['risk_reward'],
+                            'reasons': reasons,
+                            'entry_confirmed': advanced_signal['entry_confirmed'],
+                            'trade_blocked': advanced_signal['trade_blocked']
+                        }
+                        
+                        # Prepare chart data
+                        chart_data = {
+                            'close': historical_data['close'][-50:],  # Last 50 candles
+                            'high': historical_data['high'][-50:],
+                            'low': historical_data['low'][-50:],
+                            'open': historical_data['open'][-50:]
+                        }
+                        
+                        # Send advanced Telegram alert with chart
+                        telegram_sent = st.session_state.telegram_notifier.send_trade_alert_with_chart(
+                            telegram_signal_data, chart_data
+                        )
+                        
+                        if telegram_sent:
+                            print(f"DEBUG - Advanced Telegram alert sent for {decision} signal on {st.session_state.selected_currency_pair}")
+                        else:
+                            print(f"DEBUG - Advanced Telegram alert blocked by cooldown or conditions")
+                    
+                    # Advanced analysis is complete - no fallback needed
+                    
+                    # Determine signal type and colors
+                    if decision == 'BUY':
+                        if signal_strength >= 60:
+                            signal_type = "STRONG BUY"
+                            bg_color = "#10b981"  # Green
+                            text_color = "#ffffff"
+                        elif signal_strength >= 40:
+                            signal_type = "BUY"
+                            bg_color = "#34d399"  # Light green
+                            text_color = "#ffffff"
+                        else:
+                            signal_type = "WEAK BUY"
+                            bg_color = "#fbbf24"  # Yellow
+                            text_color = "#000000"
+                    elif decision == 'SELL':
+                        if signal_strength >= 60:
+                            signal_type = "STRONG SELL"
+                            bg_color = "#ef4444"  # Red
+                            text_color = "#ffffff"
+                        elif signal_strength >= 40:
+                            signal_type = "SELL"
+                            bg_color = "#f87171"  # Light red
+                            text_color = "#ffffff"
+                        else:
+                            signal_type = "WEAK SELL"
+                            bg_color = "#fb923c"  # Orange
+                            text_color = "#ffffff"
+                    else:
+                        signal_type = "WAIT"
+                        bg_color = "#6b7280"  # Gray
+                        text_color = "#ffffff"
+                    
+                    # Display professional signal card with market analysis
+                    if advanced_signal['trade_blocked']:
+                        # Show NO TRADE ZONE card
+                        st.markdown(f"""
+                        <div style="
+                            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                            color: #ffffff;
+                            padding: 24px;
+                            border-radius: 16px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                            margin: 20px 0;
+                            text-align: center;
+                            border: 1px solid rgba(255,255,255,0.1);
+                        ">
+                            <h2 style="
+                                margin: 0 0 12px 0;
+                                font-size: 28px;
+                                font-weight: 700;
+                                text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            ">🚫 NO TRADE ZONE</h2>
+                            <p style="
+                                margin: 0 0 16px 0;
+                                font-size: 16px;
+                                opacity: 0.9;
+                                font-weight: 500;
+                            ">{advanced_signal['block_reason']}</p>
+                            <div style="
+                                background: rgba(255,255,255,0.1);
+                                padding: 12px;
+                                border-radius: 8px;
+                                margin: 12px 0;
+                            ">
+                                <p style="margin: 4px 0; font-size: 14px;">
+                                    📊 Market: {advanced_signal['market_state']} | 
+                                    📈 HTF: {advanced_signal['htf_trend']}
+                                </p>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div style="
+                            background: {bg_color};
+                            color: {text_color};
+                            padding: 24px;
+                            border-radius: 16px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                            margin: 20px 0;
+                            text-align: center;
+                            border: 1px solid rgba(255,255,255,0.1);
+                        ">
+                            <h2 style="
+                                margin: 0 0 12px 0;
+                                font-size: 28px;
+                                font-weight: 700;
+                                text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            ">{signal_type}</h2>
+                            <p style="
+                                margin: 0 0 20px 0;
+                                font-size: 16px;
+                                opacity: 0.9;
+                                font-weight: 500;
+                            ">Confidence: {signal_strength:.0f}%</p>
+                            <div style="
+                                display: flex;
+                                justify-content: space-around;
+                                background: rgba(255,255,255,0.1);
+                                padding: 12px;
+                                border-radius: 8px;
+                                margin: 12px 0;
+                            ">
+                                <div>
+                                    <p style="margin: 4px 0; font-size: 12px; opacity: 0.7;">Market State</p>
+                                    <p style="margin: 0; font-size: 14px; font-weight: 600;">{advanced_signal['market_state']}</p>
+                                </div>
+                                <div>
+                                    <p style="margin: 4px 0; font-size: 12px; opacity: 0.7;">HTF Trend</p>
+                                    <p style="margin: 0; font-size: 14px; font-weight: 600;">{advanced_signal['htf_trend']}</p>
+                                </div>
+                                <div>
+                                    <p style="margin: 4px 0; font-size: 12px; opacity: 0.7;">Risk:Reward</p>
+                                    <p style="margin: 0; font-size: 14px; font-weight: 600;">{advanced_signal['risk_reward']['ratio']:.1f}:1</p>
+                                </div>
+                                <div>
+                                    <p style="margin: 4px 0; font-size: 12px; opacity: 0.7;">Entry Confirmed</p>
+                                    <p style="margin: 0; font-size: 14px; font-weight: 600;">{'✅' if advanced_signal['entry_confirmed'] else '❌'}</p>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     # Calculate position size and SL/TP
                     account_info = st.session_state.mt5_connector.get_account_info()
@@ -1324,30 +1629,50 @@ def render_main_dashboard():
                     # Use user-selected volume
                     position_size = st.session_state.selected_volume
                     
-                    # Calculate SL/TP based on ATR or fixed pips
-                    atr = calculate_atr(historical_data, 14)
-                    atr_value = atr.iloc[-1]
-                    
-                    # Use fixed pips for now (can be improved)
-                    sl_pips = 20  # 20 pips SL
-                    tp_pips = 30  # 30 pips TP
-                    
-                    if decision == 'BUY':
-                        stop_loss_price = current_price - (sl_pips * 0.0001)
-                        take_profit_price = current_price + (tp_pips * 0.0001)
-                    elif decision == 'SELL':
-                        stop_loss_price = current_price + (sl_pips * 0.0001)
-                        take_profit_price = current_price - (tp_pips * 0.0001)
-                    else:
-                        stop_loss_price = current_price
-                        take_profit_price = current_price
-                    
-                    # Display order details
-                    col1, col2 = st.columns(2)
-                    with col1:
+                    # Display trading details card
+                    if signal_type != "WAIT":
+                        st.markdown(f"""
+                        <div style="
+                            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                            color: #ffffff;
+                            padding: 20px;
+                            border-radius: 16px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                            margin: 20px 0;
+                            border: 1px solid rgba(255,255,255,0.1);
+                        ">
+                            <h3 style="
+                                margin: 0 0 16px 0;
+                                font-size: 18px;
+                                font-weight: 600;
+                                color: #ffffff;
+                                text-align: center;
+                            ">📊 Trading Details</h3>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                                <div style="text-align: center;">
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; opacity: 0.7;">Entry Price</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 600;">{current_price:.5f}</p>
+                                </div>
+                                <div style="text-align: center;">
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; opacity: 0.7;">Stop Loss</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 600;">{stop_loss_price:.5f}</p>
+                                </div>
+                                <div style="text-align: center;">
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; opacity: 0.7;">Take Profit</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 600;">{take_profit_price:.5f}</p>
+                                </div>
+                                <div style="text-align: center;">
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; opacity: 0.7;">Risk/Reward</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 600;">{advanced_signal['risk_reward']['ratio']:.1f}:1</p>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Place Order Button
                         if st.button(f"📊 Place {decision} Order", use_container_width=True, 
-                                    type="primary" if decision != 'HOLD' else "secondary",
-                                    disabled=decision == 'HOLD'):
+                                    type="primary" if decision != 'WAIT' else "secondary",
+                                    disabled=decision == 'WAIT'):
                             try:
                                 # Check daily loss limit
                                 trade_manager = TradeManager(st.session_state.mt5_connector)
@@ -1362,35 +1687,52 @@ def render_main_dashboard():
                                 
                                 result = st.session_state.mt5_connector.place_market_order(
                                     symbol=st.session_state.selected_currency_pair,
-                                    order_type=decision.split()[-1],  # Get last word (BUY/SELL)
+                                    order_type=decision,
                                     volume=position_size
                                 )
                                 if result.get('success'):
                                     # Add to active trades
                                     trade_info = {
                                         'symbol': st.session_state.selected_currency_pair,
-                                        'type': decision.split()[-1],
+                                        'type': decision,
                                         'volume': position_size,
                                         'price': current_price,
                                         'sl': stop_loss_price,
                                         'tp': take_profit_price
                                     }
                                     trade_manager.add_trade({**result, **trade_info})
+                                    
+                                    # Send Telegram notification for trade execution
+                                    telegram_trade_data = {
+                                        'symbol': st.session_state.selected_currency_pair,
+                                        'type': decision,
+                                        'volume': position_size,
+                                        'entry_price': current_price,
+                                        'stop_loss': stop_loss_price,
+                                        'take_profit': take_profit_price
+                                    }
+                                    st.session_state.telegram_notifier.send_trade_feedback(telegram_trade_data, 'executed')
+                                    
                                     st.success(f"✅ Order placed successfully! Ticket: {result.get('order')}")
                                 else:
                                     st.error(f"❌ Order failed: {result.get('error', 'Unknown error')}")
                             except Exception as e:
                                 st.error(f"❌ Error placing order: {e}")
-                    
-                    with col2:
-                        st.write("**Order Details:**")
-                        st.write(f"Type: {decision}")
-                        st.write(f"Volume: {position_size:.2f} lots")
-                        st.write(f"Entry: {current_price:.5f}")
-                        st.write(f"SL: {stop_loss_price:.5f}")
-                        st.write(f"TP: {take_profit_price:.5f}")
-                        st.write(f"SL Distance: {abs(current_price - stop_loss_price) / 0.00001:.0f} pips")
-                        st.write(f"TP Distance: {abs(take_profit_price - current_price) / 0.00001:.0f} pips")
+                    else:
+                        st.markdown("""
+                        <div style="
+                            background: linear-gradient(135deg, #4b5563 0%, #6b7280 100%);
+                            color: #ffffff;
+                            padding: 20px;
+                            border-radius: 16px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                            margin: 20px 0;
+                            border: 1px solid rgba(255,255,255,0.1);
+                            text-align: center;
+                        ">
+                            <p style="margin: 0; font-size: 16px; opacity: 0.9;">📋 No trading signal - Waiting for better market conditions</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     # Signal reasons
                     st.markdown("**📋 Signal Reasons:**")
@@ -1422,7 +1764,7 @@ def render_main_dashboard():
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Symbol", "EURUSD")
+                        st.metric("Symbol", st.session_state.selected_currency_pair)
                     with col2:
                         st.metric("Current Price", f"{current_price:.5f}")
                     with col3:
@@ -1438,7 +1780,7 @@ def render_main_dashboard():
             st.info("💡 Tip: Make sure MT5 is running and you have an active internet connection.")
     elif not market_open:
         st.warning("🔴 Market is currently closed. Signal generation and trading are not available.")
-        st.info("📅 Forex market hours: Monday - Friday, 08:00 - 22:00 UTC")
+        st.info("📅 Forex market hours: Sunday 22:00 UTC - Friday 22:00 UTC")
         st.info("⏰ Please wait for the market to reopen to continue trading.")
     
     # Chatbot section

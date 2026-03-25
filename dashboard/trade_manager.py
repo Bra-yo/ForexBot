@@ -7,6 +7,8 @@ class TradeManager:
     
     def __init__(self, mt5_connector):
         self.mt5 = mt5_connector
+        self.active_trades = []  # Use internal list instead of st.session_state
+        self.daily_loss = 0.0  # Track daily loss internally
         
     def sync_with_mt5_positions(self):
         """Sync active trades with actual MT5 positions"""
@@ -16,18 +18,18 @@ class TradeManager:
             
             if positions and 'error' not in positions:
                 mt5_tickets = {pos['ticket'] for pos in positions}
-                dashboard_tickets = {trade['ticket'] for trade in st.session_state.active_trades}
+                dashboard_tickets = {trade['ticket'] for trade in self.active_trades}
                 
                 # Remove trades that are closed in MT5
-                for trade in st.session_state.active_trades[:]:
+                for trade in self.active_trades[:]:
                     if trade['ticket'] not in mt5_tickets:
-                        # Trade was closed externally, remove from dashboard
-                        st.session_state.active_trades.remove(trade)
+                        # Trade was closed externally, remove from list
+                        self.active_trades.remove(trade)
                         
                 # Add trades that are missing from dashboard
                 for pos in positions:
                     if pos['ticket'] not in dashboard_tickets:
-                        # Add existing MT5 position to dashboard
+                        # Add existing MT5 position to active trades
                         trade = {
                             'ticket': pos['ticket'],
                             'symbol': pos['symbol'],
@@ -39,7 +41,7 @@ class TradeManager:
                             'open_time': datetime.datetime.now(),
                             'original_sl': pos['sl']
                         }
-                        st.session_state.active_trades.append(trade)
+                        self.active_trades.append(trade)
                         
         except Exception as e:
             print(f"Error syncing MT5 positions: {e}")
@@ -48,20 +50,34 @@ class TradeManager:
         """Monitor and manage all active trades"""
         closed_trades = []
         
-        for trade in st.session_state.active_trades:
+        for trade in self.active_trades:
             action = self._evaluate_trade(trade, bot_settings)
             if action['close']:
-                result = self._close_trade(trade, action['reason'])
-                closed_trades.append(result)
+                if action['reason'] == 'Position Closed (TP/SL)':
+                    # Position already closed by MT5, just remove from list
+                    result = {
+                        'ticket': trade['ticket'],
+                        'reason': action['reason'],
+                        'profit': 0,  # Will be updated from MT5 history if needed
+                        'close_time': datetime.datetime.now()
+                    }
+                    closed_trades.append(result)
+                    # Remove from active trades immediately
+                    self.active_trades = [t for t in self.active_trades if t['ticket'] != trade['ticket']]
+                    print(f"DEBUG - Removed closed trade {trade['ticket']} from active trades")
+                else:
+                    # Normal closure process
+                    result = self._close_trade(trade, action['reason'])
+                    closed_trades.append(result)
             elif action['modify_sl']:
                 self._modify_stop_loss(trade, action['new_sl'], action['reason'])
                 
         # Remove closed trades
-        st.session_state.active_trades = [
-            t for t in st.session_state.active_trades 
-            if t['ticket'] not in [c['ticket'] for c in closed_trades]
-        ]
-        
+        for result in closed_trades:
+            if 'error' not in result:
+                # Remove from active trades list
+                self.active_trades = [t for t in self.active_trades if t['ticket'] != result['ticket']]
+                
         return closed_trades
     
     def _evaluate_trade(self, trade: Dict, settings: Dict) -> Dict:
@@ -79,16 +95,47 @@ class TradeManager:
         if not current_price:
             return {'close': False, 'modify_sl': False}
         
-        # Calculate current profit/loss
-        if trade_type == 'BUY':
-            current_profit = (current_price - entry_price) * volume * 100000
-        else:
-            current_profit = (entry_price - current_price) * volume * 100000
+        # Get REAL profit from MT5 instead of calculating
+        position_found = False
+        real_profit = 0
+        current_profit = 0  # Initialize outside try block
+        profit_pips = 0
         
-        profit_pips = abs(current_profit / (volume * 10))
-        
-        # DEBUG: Print current values for troubleshooting
-        print(f"DEBUG - Trade {ticket}: Type={trade_type}, Current={current_price:.5f}, SL={stop_loss:.5f}, TP={take_profit:.5f}, Profit={profit_pips:.1f} pips")
+        try:
+            positions = self.mt5.get_positions()
+            if positions and 'error' not in positions:
+                for pos in positions:
+                    if pos['ticket'] == ticket:
+                        real_profit = pos.get('profit', 0)
+                        position_found = True
+                        profit_pips = abs(real_profit / (volume * 10)) if volume > 0 else 0
+                        
+                        # DEBUG: Print current values for troubleshooting
+                        print(f"DEBUG - Trade {ticket}: Type={trade_type}, Current={current_price:.5f}, SL={stop_loss:.5f}, TP={take_profit:.5f}, Real Profit=${real_profit:.2f}, Profit={profit_pips:.1f} pips")
+                        break
+                
+                # If position not found, it might have been closed by TP/SL
+                if not position_found:
+                    print(f"DEBUG - Trade {ticket}: Position not found in MT5 - likely closed by TP/SL")
+                    return {'close': True, 'reason': 'Position Closed (TP/SL)'}
+            else:
+                # Fallback calculation
+                if trade_type == 'BUY':
+                    current_profit = (current_price - entry_price) * volume * 100000
+                else:
+                    current_profit = (entry_price - current_price) * volume * 100000
+                
+                profit_pips = abs(current_profit / (volume * 10))
+                print(f"DEBUG - Trade {ticket}: Type={trade_type}, Current={current_price:.5f}, SL={stop_loss:.5f}, TP={take_profit:.5f}, Calculated Profit={profit_pips:.1f} pips")
+        except:
+            # Fallback calculation
+            if trade_type == 'BUY':
+                current_profit = (current_price - entry_price) * volume * 100000
+            else:
+                current_profit = (entry_price - current_price) * volume * 100000
+            
+            profit_pips = abs(current_profit / (volume * 10))
+            print(f"DEBUG - Trade {ticket}: Type={trade_type}, Current={current_price:.5f}, SL={stop_loss:.5f}, TP={take_profit:.5f}, Calculated Profit={profit_pips:.1f} pips")
         
         # Check stop loss (MOST IMPORTANT - Check first)
         if trade_type == 'BUY' and current_price <= stop_loss:
@@ -162,7 +209,7 @@ class TradeManager:
             
             # Update daily loss tracking
             if result.get('profit', 0) < 0:
-                st.session_state.daily_loss += abs(result['profit'])
+                self.daily_loss += abs(result['profit'])
             
             return {
                 'ticket': ticket,
@@ -183,7 +230,7 @@ class TradeManager:
             
             self.mt5.modify_position(ticket, new_sl, tp)
             # Update trade in active trades
-            for t in st.session_state.active_trades:
+            for t in self.active_trades:
                 if t['ticket'] == ticket:
                     t['stop_loss'] = new_sl
                     break
@@ -191,13 +238,8 @@ class TradeManager:
             print(f"Error modifying SL: {e}")
     
     def check_daily_loss_limit(self, settings: Dict) -> bool:
-        """Check if daily loss limit is reached"""
-        # Reset daily loss if new day
-        if datetime.datetime.now().date() != st.session_state.last_trade_date:
-            st.session_state.daily_loss = 0.0
-            st.session_state.last_trade_date = datetime.datetime.now().date()
-        
-        return st.session_state.daily_loss >= settings['max_daily_loss']
+        """Check if daily loss limit has been reached"""
+        return self.daily_loss >= settings['max_daily_loss']
     
     def check_spread_filter(self, symbol: str, settings: Dict) -> bool:
         """Check if spread is acceptable for trading"""
@@ -208,8 +250,11 @@ class TradeManager:
             symbol_info = self.mt5.get_symbol_info(symbol)
             if 'error' not in symbol_info:
                 spread_pips = symbol_info.get('spread', 0)
-                return spread_pips <= settings['max_spread_pips']
-        except:
+                max_spread = settings.get('max_spread_points', settings.get('max_spread_pips', 3))
+                print(f"DEBUG - Spread Check: {spread_pips} pips <= {max_spread} pips")
+                return spread_pips <= max_spread
+        except Exception as e:
+            print(f"DEBUG - Spread filter error: {e}")
             pass
         
         return False

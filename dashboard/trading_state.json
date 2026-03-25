@@ -1,1 +1,1 @@
-{"timestamp": "2026-03-22T00:17:03.536114", "market_open": false, "mt5_connected": true, "active_trades": [], "daily_loss": 0.0, "signals": {}, "account_info": {}}
+{"timestamp": "2026-03-25T12:41:49.243347", "market_open": true, "mt5_connected": true, "active_trades": [], "daily_loss": 0.0, "signals": {}, "account_info": {"login": 104937125, "server": "MetaQuotes-Demo", "currency": "USD", "balance": 10.0, "equity": 10.0, "margin": 0.0, "free_margin": 10.0, "margin_level": 0.0, "leverage": 100, "profit": 0.0, "swap": 0, "margin_free": 10.0, "margin_used": 0.0}}

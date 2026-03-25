@@ -14,6 +14,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from brokers.mt5_connector import MT5Connector
 from trade_manager import TradeManager
+from integrated_scanner import IntegratedScanner
 import pandas as pd
 import numpy as np
 
@@ -103,6 +104,7 @@ class TradingEngine:
         self.running = False
         self.mt5_connector = None
         self.trade_manager = None
+        self.scanner = None  # Add scanner instance
         self.shared_state_file = "trading_state.json"
         self.login_credentials = None  # Will receive from dashboard
         
@@ -147,27 +149,39 @@ class TradingEngine:
                     print("✅ MT5 Connected Successfully")
             
             # Initialize trade manager
-                    self.trade_manager = TradeManager(self.mt5_connector)
-                    
-                    # Load bot settings
-                    self.bot_settings = self.load_settings()
-                    
-                    print("✅ Trading Engine Initialized")
-                    
-                    # Start the main trading loop
-                    self.running = True
-                    print("🔄 Starting Trading Loop...")
-                    print("📝 Engine will run continuously")
-                    print("🛑 Press CTRL+C to stop trading engine")
-                    print("📊 Monitor will show real-time activity")
-                    print("=" * 50)
-                    
-                    # Add delay before starting loop to prevent immediate exit
-                    print("⏳ Stabilizing connection...")
-                    time.sleep(2)
-                    
-                    # Run trading loop
-                    self.run_trading_loop()
+            self.trade_manager = TradeManager(self.mt5_connector)
+            
+            # Initialize integrated scanner (shares MT5 connection)
+            print("🔍 Initializing integrated scanner...")
+            self.scanner = IntegratedScanner()
+            self.scanner.mt5_connector = self.mt5_connector  # Share MT5 connection
+            print("✅ Scanner initialized with shared MT5 connection")
+            
+            # Load bot settings
+            self.bot_settings = self.load_settings()
+            
+            print("✅ Trading Engine Initialized")
+            
+            # Start scanner in background
+            print("🚀 Starting integrated scanner (multi-pair, multi-timeframe)...")
+            self.scanner.start_background_scanner()
+            print("✅ Scanner running in background")
+            
+            # Start the main trading loop
+            self.running = True
+            print("🔄 Starting Trading Loop...")
+            print("📝 Engine will run continuously")
+            print("🛑 Press CTRL+C to stop trading engine")
+            print("📊 Monitor will show real-time activity")
+            print("🔍 Scanner monitoring 4 symbols × 4 timeframes = 16 combinations")
+            print("=" * 50)
+            
+            # Add delay before starting loop to prevent immediate exit
+            print("⏳ Stabilizing connection...")
+            time.sleep(2)
+            
+            # Run trading loop
+            self.run_trading_loop()
             
         except Exception as e:
             print(f"❌ Initialization Error: {e}")
@@ -207,18 +221,21 @@ class TradingEngine:
             print(f"❌ Error saving state: {e}")
     
     def is_market_open(self):
-        """Check if market is open"""
+        """Check if forex market is open"""
         now = datetime.now()
+        weekday = now.weekday()  # 0=Monday, 6=Sunday
+        hour = now.hour
         
-        # Weekend check
-        if now.weekday() >= 5:  # Saturday (5) or Sunday (6)
+        # Check if it's Saturday (all day)
+        if weekday == 5:  # Saturday
             return False
-            
-        # Trading hours (8:00 - 22:00 UTC)
-        trading_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
-        trading_end = now.replace(hour=22, minute=0, second=0, microsecond=0)
         
-        return trading_start <= now <= trading_end
+        # Check if it's Sunday before 22:00 UTC
+        if weekday == 6 and hour < 22:  # Sunday before 22:00 UTC
+            return False
+        
+        # Forex market is open from Sunday 22:00 UTC to Friday 22:00 UTC
+        return True
     
     def run_trading_loop(self):
         """Main trading loop - runs continuously"""
@@ -296,7 +313,7 @@ class TradingEngine:
                 end_date=end_date
             )
             
-            if historical_data and 'error' not in historical_data:
+            if historical_data is not None and 'error' not in historical_data:
                 # Calculate indicators
                 rsi = calculate_rsi(historical_data['close'], 14)
                 sma = calculate_sma(historical_data['close'], 20)
@@ -353,6 +370,13 @@ class TradingEngine:
     def stop(self):
         """Stop the trading engine"""
         self.running = False
+        
+        # Stop scanner first
+        if self.scanner:
+            print("🛑 Stopping integrated scanner...")
+            self.scanner.stop_scanner()
+            print("✅ Scanner stopped")
+        
         if self.mt5_connector:
             self.mt5_connector.disconnect()
         print("🛑 Trading Engine Stopped")

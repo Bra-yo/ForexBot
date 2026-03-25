@@ -32,6 +32,10 @@ class Config:
     STOP_LOSS_PIPS = 50
     TAKE_PROFIT_PIPS = 100
     
+    # Aliases for backward compatibility
+    SL_PIPS = 50
+    TP_PIPS = 100
+    
     # Currency Pairs to Monitor
     CURRENCY_PAIRS = [
         'EUR/USD',
