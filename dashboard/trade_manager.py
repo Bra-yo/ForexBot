@@ -1,6 +1,16 @@
 import datetime
 import streamlit as st
 from typing import Dict, List
+import logging
+import inspect
+
+# Configure logger for TradeManager
+logger = logging.getLogger(__name__)
+
+# Create a datetime function to avoid conflicts
+def get_now():
+    """Get current datetime without conflicts"""
+    return datetime.datetime.now()
 
 class TradeManager:
     """Advanced trade management with professional risk controls"""
@@ -38,7 +48,7 @@ class TradeManager:
                             'entry_price': pos['price_open'],
                             'stop_loss': pos['sl'],
                             'take_profit': pos['tp'],
-                            'open_time': datetime.datetime.now(),
+                            'open_time': get_now(),
                             'original_sl': pos['sl']
                         }
                         self.active_trades.append(trade)
@@ -59,7 +69,7 @@ class TradeManager:
                         'ticket': trade['ticket'],
                         'reason': action['reason'],
                         'profit': 0,  # Will be updated from MT5 history if needed
-                        'close_time': datetime.datetime.now()
+                        'close_time': get_now()
                     }
                     closed_trades.append(result)
                     # Remove from active trades immediately
@@ -170,8 +180,8 @@ class TradeManager:
         
         # Time-based exit
         if settings['time_exit_enabled']:
-            open_time = trade['open_time'] if isinstance(trade, dict) else trade.get('open_time', datetime.datetime.now())
-            trade_duration = datetime.datetime.now() - open_time
+            open_time = trade['open_time'] if isinstance(trade, dict) else trade.get('open_time', get_now())
+            trade_duration = get_now() - open_time
             if trade_duration.total_seconds() > settings['max_trade_time_minutes'] * 60:
                 if current_profit <= 0:
                     print(f"DEBUG - Time exit: {trade_duration.total_seconds()/60:.1f}m, no profit")
@@ -215,7 +225,7 @@ class TradeManager:
                 'ticket': ticket,
                 'reason': reason,
                 'profit': result.get('profit', 0),
-                'close_time': datetime.datetime.now()
+                'close_time': get_now()
             }
         except Exception as e:
             print(f"DEBUG - Exception in _close_trade: {e}")
@@ -266,10 +276,47 @@ class TradeManager:
             'symbol': trade_info['symbol'],
             'type': trade_info['type'],
             'volume': trade_info['volume'],
-            'entry_price': trade_info['price'],
-            'stop_loss': trade_info['sl'],
-            'take_profit': trade_info['tp'],
-            'open_time': datetime.datetime.now(),
-            'original_sl': trade_info['sl']
+            'price_open': trade_info['price'],
+            'sl': trade_info['sl'],
+            'tp': trade_info['tp'],
+            'time': get_now().isoformat(),
+            'reason': 'auto_trading'
         }
-        st.session_state.active_trades.append(trade)
+        self.active_trades.append(trade)
+        return trade
+    
+    def place_trade(self, symbol: str, trade_type: str, lot_size: float, 
+                  sl: float, tp: float, current_price: float) -> Dict:
+        """Place a new trade"""
+        try:
+            # Place the order using the correct MT5 method
+            result = self.mt5.place_market_order(
+                symbol=symbol,
+                order_type=trade_type,
+                volume=lot_size,
+                deviation=20,
+                magic=234000
+            )
+            
+            if result.get('success', False):
+                # Add to active trades
+                trade_info = {
+                    'order': result.get('order'),
+                    'symbol': symbol,
+                    'type': trade_type,
+                    'volume': lot_size,
+                    'price': current_price,
+                    'sl': sl,
+                    'tp': tp
+                }
+                self.add_trade(trade_info)
+                
+                logger.info(f"✅ Trade placed successfully: {symbol} {trade_type} {lot_size}")
+                return {'success': True, 'ticket': result.get('order'), 'trade': trade_info}
+            else:
+                logger.error(f"❌ Trade placement failed: {result.get('error', 'Unknown error')}")
+                return {'success': False, 'error': result.get('error', 'Unknown error')}
+                
+        except Exception as e:
+            logger.error(f"❌ Error placing trade: {e}")
+            return {'success': False, 'error': str(e)}

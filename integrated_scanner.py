@@ -17,6 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'brokers'))
 from technical_analysis import TechnicalAnalysis
 from mt5_connector import MT5Connector
 from advanced_telegram_assistant import AdvancedTelegramAssistant
+from auto_trading_manager import AutoTradingManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,6 +35,7 @@ class IntegratedScanner:
         self.mt5_connector = MT5Connector()
         self.technical_analysis = TechnicalAnalysis()
         self.telegram_assistant = AdvancedTelegramAssistant()
+        self.auto_trading_manager = None  # Will be initialized later
         
         # Track last signals to avoid duplicates
         self.last_signals = {}
@@ -45,6 +47,31 @@ class IntegratedScanner:
         self.running = False
         self.scanner_thread = None
         
+    def initialize_auto_trading(self, trade_manager):
+        """Initialize auto trading manager with trade manager"""
+        try:
+            self.auto_trading_manager = AutoTradingManager(
+                self.mt5_connector, 
+                trade_manager, 
+                self.telegram_assistant
+            )
+            logger.info("✅ Auto trading manager initialized")
+            
+            # Configure auto trading settings
+            self.auto_trading_manager.update_config(
+                enabled=True,
+                min_confidence=60,
+                max_trades=3,
+                cooldown_minutes=5,
+                risk_per_trade=1.0
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize auto trading: {e}")
+            return False
+    
     def start_background_scanner(self):
         """Start scanner in background thread"""
         if self.scanner_thread and self.scanner_thread.is_alive():
@@ -162,57 +189,134 @@ class IntegratedScanner:
         return False
     
     def _send_telegram_alert(self, symbol, timeframe, signal_analysis):
-        """Send Telegram alert with interactive buttons"""
+        """Send Telegram alert with interactive buttons and execute auto trading"""
         try:
-            # Prepare signal data for Telegram
-            telegram_data = {
-                'symbol': symbol,
-                'timeframe': timeframe,
-                'signal': signal_analysis.get('signal', 'WAIT'),
-                'confidence': signal_analysis.get('confidence', 0),
-                'market_state': signal_analysis.get('market_state', 'UNKNOWN'),
-                'htf_trend': signal_analysis.get('htf_trend', 'SIDEWAYS'),
-                'trade_blocked': signal_analysis.get('trade_blocked', False),
-                'block_reason': signal_analysis.get('block_reason', ''),
-                'entry_confirmed': signal_analysis.get('entry_confirmed', False),
-                'risk_reward': signal_analysis.get('risk_reward', {}),
-                'structure_sl': signal_analysis.get('structure_sl', 0),
-                'structure_tp': signal_analysis.get('structure_tp', 0),
-                'reasons': signal_analysis.get('reasons', []),
-                'factors': signal_analysis.get('factors', {}),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Send alert with chart
-            chart_data = {
-                'symbol': symbol,
-                'timeframe': timeframe,
-                'data': signal_analysis.get('factors', {})
-            }
-            
-            success = self.telegram_assistant.send_trade_alert_with_chart(
-                telegram_data, chart_data
-            )
-            
-            if success:
-                logger.info(f"Telegram alert sent for {symbol} {timeframe}")
-                # Update last signal
-                self.last_signals[symbol][timeframe] = current_signal
+            # Execute auto trading first (only send alerts for executed trades)
+            trade_executed = False
+            if self.auto_trading_manager:
+                logger.info(f"🤖 Checking auto trading for {symbol} {timeframe}...")
+                
+                # Prepare signal data for auto trading
+                signal_data = {
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'signal': signal_analysis.get('signal', 'WAIT'),
+                    'confidence': signal_analysis.get('confidence', 0),
+                    'market_state': signal_analysis.get('market_state', 'UNKNOWN'),
+                    'htf_trend': signal_analysis.get('htf_trend', 'SIDEWAYS'),
+                    'trade_blocked': signal_analysis.get('trade_blocked', False),
+                    'block_reason': signal_analysis.get('block_reason', ''),
+                    'entry_confirmed': signal_analysis.get('entry_confirmed', False),
+                    'risk_reward': signal_analysis.get('risk_reward', {}),
+                    'structure_sl': signal_analysis.get('structure_sl', 0),
+                    'structure_tp': signal_analysis.get('structure_tp', 0),
+                    'reasons': signal_analysis.get('reasons', []),
+                    'factors': signal_analysis.get('factors', {}),
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                # Add current price for auto trading
+                factors = signal_analysis.get('factors', {})
+                if 'close' in factors:
+                    signal_data['current_price'] = factors['close'].iloc[-1]
+                else:
+                    # Fallback: get current price from MT5
+                    try:
+                        tick = self.mt5_connector.get_symbol_tick(symbol)
+                        if tick:
+                            signal_data['current_price'] = tick.get('bid', 0)
+                        else:
+                            signal_data['current_price'] = 0
+                    except:
+                        signal_data['current_price'] = 0
+                
+                # Execute auto trade
+                trade_executed = self.auto_trading_manager.execute_auto_trade(signal_data)
+                
+                if trade_executed:
+                    logger.info(f"✅ Auto trade executed for {symbol}")
+                else:
+                    logger.info(f"🚫 Auto trade blocked for {symbol}")
             else:
-                logger.warning(f"Telegram alert failed for {symbol} {timeframe}")
+                logger.warning("Auto trading manager not initialized")
+            
+            # Only send Telegram alert if trade was executed
+            if trade_executed:
+                logger.info(f"📱 Sending Telegram notification for executed trade: {symbol}")
+                
+                # Prepare signal data for Telegram
+                telegram_data = {
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'signal': signal_analysis.get('signal', 'WAIT'),
+                    'confidence': signal_analysis.get('confidence', 0),
+                    'market_state': signal_analysis.get('market_state', 'UNKNOWN'),
+                    'htf_trend': signal_analysis.get('htf_trend', 'SIDEWAYS'),
+                    'trade_blocked': signal_analysis.get('trade_blocked', False),
+                    'block_reason': signal_analysis.get('block_reason', ''),
+                    'entry_confirmed': signal_analysis.get('entry_confirmed', False),
+                    'risk_reward': signal_analysis.get('risk_reward', {}),
+                    'structure_sl': signal_analysis.get('structure_sl', 0),
+                    'structure_tp': signal_analysis.get('structure_tp', 0),
+                    'reasons': signal_analysis.get('reasons', []),
+                    'factors': signal_analysis.get('factors', {}),
+                    'timestamp': datetime.now().isoformat(),
+                    'current_price': signal_data.get('current_price', 0)
+                }
+                
+                # Send alert with chart
+                chart_data = {
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'data': signal_analysis.get('factors', {})
+                }
+                
+                success = self.telegram_assistant.send_trade_alert_with_chart(
+                    telegram_data, chart_data
+                )
+                
+                if success:
+                    logger.info(f"✅ Telegram alert sent for executed trade: {symbol}")
+                else:
+                    logger.warning(f"❌ Telegram alert failed for executed trade: {symbol}")
+            else:
+                logger.info(f"📊 Trade not executed - no Telegram alert sent for {symbol}")
+                
+            # Update last signal
+            self.last_signals[symbol][timeframe] = signal_analysis.get('signal', 'WAIT')
                 
         except Exception as e:
-            logger.error(f"Error sending Telegram alert: {e}")
+            logger.error(f"Error in signal processing: {e}")
     
     def get_scanner_status(self):
         """Get current scanner status"""
-        return {
+        status = {
             'running': self.running,
             'thread_alive': self.scanner_thread.is_alive() if self.scanner_thread else False,
             'last_signals': self.last_signals,
             'symbols_count': len(SYMBOLS),
             'timeframes_count': len(TIMEFRAMES)
         }
+        
+        # Add auto trading status if available
+        if self.auto_trading_manager:
+            auto_trading_stats = self.auto_trading_manager.get_statistics()
+            status['auto_trading'] = {
+                'enabled': auto_trading_stats['config']['enabled'],
+                'min_confidence': auto_trading_stats['config']['min_confidence'],
+                'max_trades': auto_trading_stats['config']['max_trades'],
+                'active_trades': auto_trading_stats['active_trades'],
+                'total_trades': auto_trading_stats['stats']['total_trades'],
+                'successful_trades': auto_trading_stats['stats']['successful_trades'],
+                'failed_trades': auto_trading_stats['stats']['failed_trades']
+            }
+        else:
+            status['auto_trading'] = {
+                'enabled': False,
+                'initialized': False
+            }
+        
+        return status
 
 # Global scanner instance
 _integrated_scanner = None

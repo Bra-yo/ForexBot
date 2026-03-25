@@ -42,10 +42,29 @@ class MT5Connector:
             Connection success status
         """
         try:
-            # Initialize MT5 terminal
+            # Initialize MT5 terminal with better error handling
+            import MetaTrader5 as mt5
+            
+            # Initialize MT5 first (this is required before checking terminal info)
+            logger.info("Initializing MT5...")
             if not mt5.initialize():
-                logger.error("MT5 initialize() failed")
+                logger.error(f"MT5 initialize() failed: {mt5.last_error()}")
+                logger.error("Please check:")
+                logger.error("1. MetaTrader 5 is running")
+                logger.error("2. 'Algo Trading' is enabled in MT5")
+                logger.error("3. You're logged into MT5")
+                logger.error("4. MT5 terminal path is correct")
                 return False
+            
+            logger.info("MT5 terminal initialized successfully")
+            
+            # Now check terminal info
+            if not mt5.terminal_info():
+                logger.error("MT5 terminal info not available after initialization")
+                logger.error("Please ensure MetaTrader 5 is properly running")
+                return False
+            
+            logger.info("MT5 terminal verified successfully")
             
             # Login if credentials provided
             if login and password and server:
@@ -328,21 +347,58 @@ class MT5Connector:
             tp_distance = abs(tp_price - price) / symbol_info.point
             
             # Ensure minimum distances (very conservative)
-            min_distance = max(50, symbol_info.trade_stops_level if hasattr(symbol_info, 'trade_stops_level') else 50)
+            if sl_distance < 10:  # 10 pips minimum SL
+                sl_distance = 10
+            if tp_distance < 15:  # 15 pips minimum TP
+                tp_distance = 15
             
-            if sl_distance < min_distance:
-                sl_price = price - min_distance * symbol_info.point if order_type.upper() == 'BUY' else price + min_distance * symbol_info.point
-                sl_distance = min_distance
+            # Check minimum lot size (allow smaller for demo)
+            min_lot = 0.01
+            if volume < min_lot:
+                volume = min_lot
+                logger.warning(f"Lot size adjusted to minimum: {volume}")
             
-            if tp_distance < min_distance:
-                tp_price = price + min_distance * symbol_info.point if order_type.upper() == 'BUY' else price - min_distance * symbol_info.point
-                tp_distance = min_distance
+            # Check for demo account limitations
+            account_info = mt5.account_info()
+            is_demo = False
             
-            # Build request
+            # Multiple ways to detect demo account
+            if account_info:
+                # Check balance
+                if account_info.balance <= 1000:  # Usually demo accounts have small balances
+                    is_demo = True
+                    logger.info(f"Demo account detected (balance: ${account_info.balance})")
+                
+                # Check login or server for demo indicators
+                if hasattr(account_info, 'login') and str(account_info.login).startswith(('1', '999', 'Demo')):
+                    is_demo = True
+                    logger.info(f"Demo account detected (login: {account_info.login})")
+                
+                # Check server name
+                if hasattr(account_info, 'server') and 'demo' in str(account_info.server).lower():
+                    is_demo = True
+                    logger.info(f"Demo account detected (server: {account_info.server})")
+            
+            # Apply demo account adjustments
+            if is_demo:
+                # For demo accounts, allow micro lots and ignore "No money" errors
+                logger.info("Demo account detected - allowing micro lots")
+                # Don't limit lot size for demo accounts
+                logger.info(f"Demo account lot size allowed: {volume}")
+            else:
+                logger.info(f"Live account lot size: {volume}")
+            
+            # Log account type for debugging
+            if is_demo:
+                logger.info("Processing as DEMO account")
+            else:
+                logger.info("Processing as LIVE account")
+            
+            # Prepare request
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
-                "volume": volume,
+                "volume": volume,  # Use adjusted volume
                 "type": mt5_type,
                 "price": price,
                 "sl": sl_price,

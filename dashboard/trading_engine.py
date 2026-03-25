@@ -130,23 +130,26 @@ class TradingEngine:
                     time.sleep(1)
                 
                 if not self.login_credentials:
+                    print("❌ No login credentials provided")
+                    return False
+            
             # Connect to MT5
-                    self.mt5_connector = MT5Connector()
+            self.mt5_connector = MT5Connector()
                     
-                    # Try to connect with default credentials or load from config
-                    print("📡 Attempting MT5 connection...")
-                    connection_result = self.mt5_connector.initialize()
+            # Try to connect with default credentials or load from config
+            print("📡 Attempting MT5 connection...")
+            connection_result = self.mt5_connector.initialize()
                     
-                    if not connection_result:
-                        print("❌ Failed to connect to MT5")
-                        print("💡 Please check:")
-                        print("   1. MetaTrader 5 is running")
-                        print("   2. 'Algo Trading' is enabled in MT5")
-                        print("   3. You're logged into MT5")
-                        print("   4. MT5 terminal path is correct")
-                        return False
+            if not connection_result:
+                print("❌ Failed to connect to MT5")
+                print("💡 Please check:")
+                print("   1. MetaTrader 5 is running")
+                print("   2. 'Algo Trading' is enabled in MT5")
+                print("   3. You're logged into MT5")
+                print("   4. MT5 terminal path is correct")
+                return False
                         
-                    print("✅ MT5 Connected Successfully")
+            print("✅ MT5 Connected Successfully")
             
             # Initialize trade manager
             self.trade_manager = TradeManager(self.mt5_connector)
@@ -156,6 +159,22 @@ class TradingEngine:
             self.scanner = IntegratedScanner()
             self.scanner.mt5_connector = self.mt5_connector  # Share MT5 connection
             print("✅ Scanner initialized with shared MT5 connection")
+            
+            # Initialize auto trading with scanner
+            print("🤖 Initializing auto trading manager...")
+            auto_trading_initialized = self.scanner.initialize_auto_trading(self.trade_manager)
+            if auto_trading_initialized:
+                print("✅ Auto trading manager initialized")
+                # Configure auto trading settings
+                self.auto_trading_manager.update_config(
+                    enabled=True,
+                    min_confidence=50,  # Temporarily lowered to 50% for testing
+                    max_trades=3,
+                    cooldown_minutes=5,
+                    risk_per_trade=1.0
+                )
+            else:
+                print("⚠️ Auto trading manager failed to initialize")
             
             # Load bot settings
             self.bot_settings = self.load_settings()
