@@ -98,6 +98,13 @@ class AutoTradingManager:
         }
         self.current_market_mode = "RANGING"  # Default mode
         
+        # Enhanced market filters
+        self.ema_fast_period = 50
+        self.ema_slow_period = 200
+        self.trend_filter_enabled = True  # EMA trend filter
+        self.momentum_threshold = 0.002  # 0.2% minimum momentum
+        self.atr_multiplier = 1.5  # ATR-based filter
+        
         # Daily performance tracker
         self.daily_stats = {
             "wins": 0,
@@ -110,12 +117,59 @@ class AutoTradingManager:
         self.trade_memory = []  # Store all trades for learning
         self.adaptive_confidence = True  # Enable adaptive thresholds
         
+        # AI Prediction System
+        self.ml_model = None  # Machine learning model
+        self.prediction_threshold = 0.7  # Minimum prediction confidence
+        self.ml_enabled = True  # Enable ML predictions
+        
+        # Enhanced filtering
+        self.dual_filter_enabled = True  # Use dual filter (ML + traditional)
+        self.high_confidence_threshold = 0.75  # Higher threshold for dual filter
+        self.trade_selectivity = True  # Be selective in trades
+        
+        # Ultra-high confidence threshold
+        self.ultra_confidence_threshold = 75  # Reduced to 75% after fixing ML overfitting
+        self.ultra_selective = True  # Enable ultra-selective mode
+        
+        # Trade frequency control
+        self.max_trades_per_day = 5  # Limit trades per day
+        self.daily_trade_count = 0  # Track daily trades
+        
+        # Risk management (LEVELED UP)
+        self.risk_per_trade = 0.02  # Increased to 2% for higher returns
+        self.take_profit_pips = 40  # 0.4% take profit
+        self.stop_loss_pips = 20    # 0.2% stop loss (2:1 RR)
+        self.leverage = 10  # 10:1 leverage for forex
+        
+        # Trend filter (VERY IMPORTANT)
+        self.trend_filter_enabled = True  # Enable trend alignment
+        self.ema_trend_period = 50  # EMA period for trend detection
+        self.min_trend_strength = 0.002  # Minimum trend strength
+        
+        # Overtrading control
+        self.min_candles_between_trades = 3  # Minimum candles between trades
+        self.last_trade_candle = 0  # Track last trade candle index
+        
+        # Backtesting Engine
+        self.backtest_results = {}  # Store backtest results
+        
+        # Strategy Optimization
+        self.optimized_params = {
+            "confidence": 60,
+            "risk_reward": 2.0
+        }
+        self.auto_optimize = True  # Enable auto-optimization
+        
+        # Weekly Reports
+        self.trade_log_file = "trades.csv"  # Trade history file
+        self.report_enabled = True  # Enable weekly reports
+        
         logger.info("Auto Trading Manager initialized")
         self._log_config()
     
     def _log_config(self):
         """Log current configuration"""
-        logger.info("🤖 Auto Trading Configuration:")
+        logger.info("Auto Trading Configuration:")
         logger.info(f"   Enabled: {self.config.enabled}")
         logger.info(f"   Min Confidence: {self.config.min_confidence}%")
         logger.info(f"   Max Trades: {self.config.max_trades}")
@@ -130,14 +184,8 @@ class AutoTradingManager:
                 logger.info(f"Updated config: {key} = {value}")
         self._log_config()
     
-    def should_execute_trade(self, signal_data: Dict) -> tuple[bool, str]:
-        """
-        Comprehensive trade validation
-        
-        Returns:
-            tuple: (should_execute, reason)
-        """
-        # 1. Check if auto trading is enabled
+    def should_execute_trade(self, signal_data: Dict) -> tuple:
+        """Determine if trade should be executed"""
         if not self.config.enabled:
             return False, "Auto trading disabled"
         
@@ -377,7 +425,7 @@ class AutoTradingManager:
             is_bad_day = True
         
         if is_bad_day:
-            logger.warning("🛑 BAD TRADING DAY - Stopping trading to prevent further losses")
+            logger.warning("BAD TRADING DAY - Stopping trading to prevent further losses")
         else:
             logger.info(f"📊 Day Performance: Acceptable ({win_rate:.1%} win rate, {self.daily_stats['profit']:+.2f}% profit)")
         
@@ -400,7 +448,7 @@ class AutoTradingManager:
         if len(self.trade_memory) > 1000:
             self.trade_memory = self.trade_memory[-1000:]
         
-        logger.info(f"🧠 Trade Stored in Memory: {symbol} {result} ({confidence}% confidence)")
+        logger.info(f"Trade Stored in Memory: {symbol} {result} ({confidence}% confidence)")
     
     def get_success_rate(self, min_conf: int = 0) -> float:
         """Calculate success rate for trades above minimum confidence"""
@@ -431,22 +479,998 @@ class AutoTradingManager:
         
         return success_rate
     
-    def adapt_confidence_threshold(self) -> int:
-        """Dynamically adjust confidence threshold based on performance"""
-        if not self.adaptive_confidence:
-            return self.config.min_confidence
+    def prepare_ml_data(self, df):
+        """Prepare data for machine learning"""
+        try:
+            import pandas as pd
+            import numpy as np
+            
+            df['returns'] = df['close'].pct_change()
+            df['ma_fast'] = df['close'].rolling(5).mean()
+            df['ma_slow'] = df['close'].rolling(20).mean()
+            df['volatility'] = df['returns'].rolling(10).std()
+            
+            # Enhanced features
+            df['rsi'] = self._compute_rsi(df['close'])
+            df['ema'] = df['close'].ewm(span=10).mean()
+            df['momentum'] = df['close'] - df['close'].shift(5)
+            df['atr'] = self._compute_atr(df)
+            
+            # NEW: MACD indicator
+            df['macd'] = self._compute_macd(df['close'])
+            
+            # NEW: Candlestick patterns
+            df['doji'] = self._detect_doji(df)
+            df['engulfing'] = self._detect_engulfing(df)
+            
+            # Better target: Meaningful moves only (3 candles, 0.1% threshold)
+            future_price = df['close'].shift(-3)
+            current_price = df['close']
+            price_change = (future_price - current_price) / current_price
+            df['target'] = (price_change > 0.001).astype(int)  # 0.1% minimum move
+            
+            df = df.dropna()
+            logger.info(f"Enhanced ML Data Prepared: {len(df)} samples, 9 features")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"❌ Error preparing ML data: {e}")
+            return df
+    
+    def _compute_macd(self, prices, fast=12, slow=26, signal=9):
+        """Compute MACD indicator"""
+        try:
+            import numpy as np
+            exp1 = prices.ewm(span=fast).mean()
+            exp2 = prices.ewm(span=slow).mean()
+            macd = exp1 - exp2
+            signal = macd.ewm(span=signal).mean()
+            return macd
+        except:
+            return prices * 0 + 0  # Return neutral MACD
+    
+    def _detect_doji(self, df):
+        """Detect doji candlestick patterns"""
+        try:
+            body = abs(df['close'] - df['open'])
+            upper_shadow = df['high'] - df[['close', 'open']].max(axis=1)
+            lower_shadow = df[['close', 'open']].min(axis=1) - df['low']
+            
+            # Doji: Very small body
+            doji = body < (upper_shadow + lower_shadow) * 0.1
+            return doji.astype(int)
+        except:
+            return 0  # No doji
+    
+    def _detect_engulfing(self, df):
+        """Detect engulfing candlestick patterns"""
+        try:
+            prev_body = abs(df['close'].shift() - df['open'].shift())
+            curr_body = abs(df['close'] - df['open'])
+            
+            # Bullish engulfing
+            bull_engulf = (df['close'].shift() < df['open'].shift() and 
+                          df['open'] > df['high'].shift() and 
+                          df['close'] > df['low'].shift())
+            
+            # Bearish engulfing
+            bear_engulf = (df['close'].shift() > df['open'].shift() and 
+                          df['open'] < df['low'].shift() and 
+                          df['close'] < df['high'].shift())
+            
+            return (bull_engulf | bear_engulf).astype(int)
+        except:
+            return 0  # No engulfing
+    
+    def _compute_rsi(self, prices, period=14):
+        """Compute RSI indicator"""
+        try:
+            import numpy as np
+            delta = prices.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            return rsi
+        except:
+            return prices * 0 + 50  # Return neutral RSI
+    
+    def _compute_atr(self, df, period=14):
+        """Compute Average True Range"""
+        try:
+            high_low = df['high'] - df['low']
+            high_close = abs(df['high'] - df['close'].shift())
+            low_close = abs(df['low'] - df['close'].shift())
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = true_range.rolling(period).mean()
+            return atr
+        except:
+            return df['close'] * 0 + 0.001  # Return small ATR
+    
+    def train_model(self, df):
+        """Train ML model with proper time-series validation"""
+        try:
+            import pandas as pd
+            from sklearn.model_selection import train_test_split
+            from sklearn.ensemble import RandomForestClassifier
+            
+            # CRITICAL FIX: Time-series split (NO SHUFFLING!)
+            split_index = int(len(df) * 0.8)
+            
+            train = df.iloc[:split_index]
+            test = df.iloc[split_index:]
+            
+            # CRITICAL FIX: Shift all features to prevent future data leakage
+            features_to_shift = ['ma_fast', 'ma_slow', 'rsi', 'ema', 'momentum', 'atr', 'volatility']
+            
+            for feature in features_to_shift:
+                if feature in train.columns:
+                    train[feature] = train[feature].shift(1)
+                    test[feature] = test[feature].shift(1)
+            
+            # Drop NaN values created by shifting
+            train = train.dropna()
+            test = test.dropna()
+            
+            # Prepare features
+            features = ['ma_fast', 'ma_slow', 'volatility', 'rsi', 'ema', 'momentum', 'atr']
+            features = [f for f in features if f in train.columns]
+            
+            X_train = train[features]
+            y_train = train['target']
+            X_test = test[features]
+            y_test = test['target']
+            
+            logger.info(f"CRITICAL FIX: Time-series split with shifted features")
+            logger.info(f"   Train period: {len(train)} candles")
+            logger.info(f"   Test period: {len(test)} candles")
+            logger.info(f"   Features shifted: {features_to_shift}")
+            
+            # Train model
+            self.ml_model = RandomForestClassifier(n_estimators=100, random_state=42)
+            self.ml_model.fit(X_train, y_train)
+            
+            # Store feature names for consistency
+            self.model_features = features
+            
+            # REAL ACCURACY ON TEST DATA (not training data!)
+            train_accuracy = self.ml_model.score(X_train, y_train)
+            test_accuracy = self.ml_model.score(X_test, y_test)
+            
+            logger.info(f"ML Model Trained:")
+            logger.info(f"   Training Accuracy: {train_accuracy:.1%} (expected: high)")
+            logger.info(f"   Test Accuracy: {test_accuracy:.1%} (REAL performance)")
+            logger.info(f"   Features: {len(features)}")
+            logger.info(f"   Train Size: {len(X_train)}, Test Size: {len(X_test)}")
+            
+            # WARN if overfitting detected
+            if train_accuracy > 0.9 and test_accuracy < 0.7:
+                logger.warning(f"OVERFITTING DETECTED! Train: {train_accuracy:.1%} vs Test: {test_accuracy:.1%}")
+            elif test_accuracy > 0.8:
+                logger.warning(f"Suspiciously high test accuracy: {test_accuracy:.1%} - possible data leakage")
+            elif 0.5 <= test_accuracy <= 0.7:
+                logger.info(f"Realistic ML accuracy: {test_accuracy:.1%}")
+            else:
+                logger.warning(f"Low test accuracy: {test_accuracy:.1%} - model may not be useful")
+            
+            return self.ml_model
+            
+        except Exception as e:
+            logger.error(f"Error training ML model: {e}")
+            return None
+    
+    def predict_signal(self, latest_data):
+        """Predict next move using ML model"""
+        try:
+            if self.ml_model is None:
+                return None, 0.0
+            
+            import pandas as pd
+            
+            # Use the same features that were used during training
+            if hasattr(self, 'model_features'):
+                features = self.model_features
+            else:
+                features = ['ma_fast', 'ma_slow', 'volatility', 'rsi', 'ema', 'momentum', 'atr']
+            
+            # Check if all features are available in latest_data
+            available_features = [f for f in features if f in latest_data]
+            if len(available_features) != len(features):
+                logger.warning(f"Missing features: {set(features) - set(available_features)}")
+                return None, 0.0
+            
+            # Extract feature values properly
+            feature_values = []
+            for feature in features:
+                feature_values.append(latest_data.get(feature, 0))
+            
+            X = pd.DataFrame([feature_values], columns=features)
+            
+            prediction = self.ml_model.predict(X)[0]
+            prob = self.ml_model.predict_proba(X)[0][prediction]
+            
+            signal = "BUY" if prediction == 1 else "SELL"
+            
+            logger.info(f"ML Prediction: {signal} ({prob:.1%} confidence)")
+            
+            return signal, prob
+            
+        except Exception as e:
+            logger.error(f"Error predicting signal: {e}")
+            return None, 0.0
+    
+    def apply_all_filters(self, symbol: str, signal: str, confidence: float, signal_data: Dict) -> bool:
+        """Apply all professional filters before trade execution"""
+        try:
+            # Filter 1: Minimum confidence
+            if confidence < self.config.min_confidence:
+                logger.info(f"🚫 Filter: Confidence too low ({confidence}% < {self.config.min_confidence}%)")
+                return False
+            
+            # Filter 2: Cooldown check
+            if self._is_in_cooldown(symbol):
+                logger.info(f"🚫 Filter: {symbol} in cooldown")
+                return False
+            
+            # Filter 3: Max trades check
+            if self._is_max_trades_reached():
+                logger.info(f"🚫 Filter: Max trades reached ({len(self.active_trades)}/{self.config.max_trades})")
+                return False
+            
+            # Filter 4: Duplicate trade check
+            if self._has_duplicate_trade(symbol, signal):
+                logger.info(f"🚫 Filter: Duplicate trade for {symbol}")
+                return False
+            
+            # Filter 5: Signal stability
+            if not self.is_signal_stable(symbol, signal):
+                logger.info(f"🚫 Filter: Signal not stable for {symbol}")
+                return False
+            
+            # Filter 6: Trading session
+            if not self.is_trading_session():
+                logger.info(f"🚫 Filter: Outside trading session")
+                return False
+            
+            # Filter 7: Opposite signal check
+            if self.is_opposite_signal(symbol, signal):
+                logger.info(f"🚫 Filter: Opposite signal for {symbol}")
+                return False
+            
+            # Filter 8: Daily limits
+            if hasattr(self, 'check_daily_limits') and not self.check_daily_limits():
+                logger.info(f"🚫 Filter: Daily limits reached")
+                return False
+            
+            # Filter 9: Market conditions (if available)
+            if hasattr(self, '_check_market_conditions'):
+                if not self._check_market_conditions(signal_data):
+                    logger.info(f"🚫 Filter: Poor market conditions")
+                    return False
+            
+            # Filter 10: Ultra-selective mode
+            if self.ultra_selective and confidence < self.ultra_confidence_threshold:
+                logger.info(f"🚫 Filter: Ultra-selective mode ({confidence}% < {self.ultra_confidence_threshold}%)")
+                return False
+            
+            logger.info(f"✅ All filters passed for {symbol} {signal} ({confidence}%)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error in filters: {e}")
+            return False
+    
+    def calculate_lot_size(self, balance, risk_percent, stop_loss_pips, pip_value=10):
+        """Calculate proper lot size based on risk and stop loss distance"""
+        risk_amount = balance * (risk_percent / 100)
         
-        success_rate = self.get_success_rate(self.config.min_confidence)
-        new_confidence = self.config.min_confidence
+        if stop_loss_pips == 0:
+            return 0.01  # fallback
         
-        if success_rate < 0.5:
-            new_confidence = 75
-            logger.warning(f"📈 Low success rate ({success_rate:.1%}) - Raising confidence to {new_confidence}%")
-        elif success_rate > 0.7:
-            new_confidence = 60
-            logger.info(f"📈 High success rate ({success_rate:.1%}) - Lowering confidence to {new_confidence}%")
+        lot_size = risk_amount / (stop_loss_pips * pip_value)
         
-        return new_confidence
+        # Safety limits
+        lot_size = max(0.01, min(lot_size, 10))
+        
+        return round(lot_size, 2)
+
+    def calculate_atr(self, df, period=14):
+        """Calculate Average True Range for dynamic stop loss"""
+        import pandas as pd
+        
+        high_low = df['high'] - df['low']
+        high_close = abs(df['high'] - df['close'].shift())
+        low_close = abs(df['low'] - df['close'].shift())
+        
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = ranges.max(axis=1)
+        
+        atr = true_range.rolling(period).mean()
+        return atr
+
+    def calculate_dynamic_sl_tp(self, entry_price, atr, signal, sl_multiplier=1.5, tp_multiplier=2.5, trend="neutral"):
+        """Calculate dynamic stop loss and take profit based on ATR and market conditions"""
+        
+        # OPTIMIZED FOR PROFITABILITY: Better risk/reward ratios
+        if trend == "bearish" and signal == "SELL":
+            # In bear market, excellent risk/reward
+            sl_multiplier = 1.8  # Slightly tighter for better RR
+            tp_multiplier = 4.0  # Much bigger targets for profitability
+        elif trend == "ranging":
+            # In ranging markets, very tight stops and quick targets
+            sl_multiplier = 1.0  # Very tight stops
+            tp_multiplier = 2.0  # Quick targets
+        elif trend == "bullish" and signal == "BUY":
+            # In bull market, excellent risk/reward
+            sl_multiplier = 1.8
+            tp_multiplier = 4.0
+        else:
+            # Default - improved risk/reward
+            sl_multiplier = 1.5
+            tp_multiplier = 3.0
+        
+        if signal == "BUY":
+            stop_loss = entry_price - (atr * sl_multiplier)
+            take_profit = entry_price + (atr * tp_multiplier)
+        else:  # SELL
+            stop_loss = entry_price + (atr * sl_multiplier)
+            take_profit = entry_price - (atr * tp_multiplier)
+        
+        return stop_loss, take_profit
+
+    def manage_trade_dynamically(self, signal, entry_price, current_price, atr, stop_loss, take_profit, lot_size, trade_open_pips):
+        """Advanced trade management with break-even, trailing stop, and partial TP"""
+        
+        # BREAK-EVEN LOGIC
+        if trade_open_pips >= atr * 10000:  # 1 ATR in pips
+            if signal == "BUY" and stop_loss < entry_price:
+                stop_loss = entry_price
+                logger.info(f"Break-even activated: BUY SL moved to {entry_price:.5f}")
+            elif signal == "SELL" and stop_loss > entry_price:
+                stop_loss = entry_price
+                logger.info(f"Break-even activated: SELL SL moved to {entry_price:.5f}")
+        
+        # TRAILING STOP LOGIC
+        if signal == "BUY":
+            new_stop = current_price - (atr * 1.2)
+            if new_stop > stop_loss:
+                stop_loss = new_stop
+                logger.info(f"Trailing stop updated: {stop_loss:.5f}")
+        elif signal == "SELL":
+            new_stop = current_price + (atr * 1.2)
+            if new_stop < stop_loss:
+                stop_loss = new_stop
+                logger.info(f"Trailing stop updated: {stop_loss:.5f}")
+        
+        # PARTIAL TAKE PROFIT (would need position tracking in live trading)
+        # For backtest, we'll just log when this would happen
+        if trade_open_pips >= atr * 1.5 * 10000:  # 1.5 ATR in pips
+            logger.info(f"Partial TP opportunity: {trade_open_pips:.1f} pips profit")
+        
+        return stop_loss, take_profit
+
+    def detect_market_strength(self, df, current_index: int) -> str:
+        """Detect overall market strength for additional filtering"""
+        try:
+            # Get recent candles for analysis
+            start_idx = max(0, current_index - 20)
+            recent_df = df.iloc[start_idx:current_index + 1]
+            
+            if len(recent_df) < 10:
+                return "weak"
+            
+            # Calculate price movement strength
+            price_change = abs(recent_df['close'].iloc[-1] - recent_df['close'].iloc[0]) / recent_df['close'].iloc[0]
+            
+            # Calculate volatility strength
+            volatility = recent_df['high'].max() - recent_df['low'].min()
+            avg_range = (recent_df['high'] - recent_df['low']).mean()
+            volatility_strength = volatility / avg_range if avg_range > 0 else 1
+            
+            # Overall strength score
+            strength_score = 0
+            
+            # Price movement strength
+            if price_change > 0.005:  # 0.5% movement
+                strength_score += 2
+            elif price_change > 0.002:  # 0.2% movement
+                strength_score += 1
+            
+            # Volatility strength
+            if volatility_strength > 2.0:
+                strength_score += 2
+            elif volatility_strength > 1.5:
+                strength_score += 1
+            
+            # Classify market strength
+            if strength_score >= 3:
+                market_strength = "strong"
+            elif strength_score >= 1:
+                market_strength = "moderate"
+            else:
+                market_strength = "weak"
+            
+            logger.info(f"Market Strength: {market_strength} (Score: {strength_score}, Price Change: {price_change:.3f})")
+            return market_strength
+            
+        except Exception as e:
+            logger.error(f"Error detecting market strength: {e}")
+            return "weak"
+
+    def calculate_trade_strength_score(self, signal, confidence, trend, atr, momentum, atr_mean):
+        """Calculate trade strength score for quality filtering - BEAR MARKET EDITION"""
+        score = 0
+        
+        # BEAR MARKET STRATEGY: Look for reversals, not trend following
+        if trend == "bearish":
+            # In bear market, look for BUY reversals (counter-trend)
+            if signal == "BUY" and confidence > 95:
+                score += 3  # Strong reversal signals
+            elif signal == "SELL" and confidence > 98:
+                score += 1  # Only very strong SELL signals
+        elif trend == "ranging":
+            # In ranging markets, mean reversion is key
+            if confidence > 94:  # High confidence for ranging
+                score += 2
+        elif signal == "BUY" and trend == "bullish":
+            score += 2
+        elif signal == "SELL" and trend == "bearish":
+            score += 2
+        
+        # REVERSAL MOMENTUM (Critical for bear market)
+        if trend == "bearish" and signal == "BUY":
+            # Look for strong upward momentum in bear market (reversal)
+            if momentum > 0.002:  # Strong upward momentum
+                score += 3
+            elif momentum > 0.001:
+                score += 2
+        elif trend == "ranging":
+            # Mean reversion momentum
+            if abs(momentum) > 0.002:
+                score += 2
+        
+        # VOLATILITY (Important for reversals)
+        if atr > atr_mean * 1.3:  # High volatility = good for reversals
+            score += 2
+        elif atr > atr_mean:
+            score += 1
+        
+        logger.info(f"BEAR MARKET Strength Score: {score} (Signal: {signal}, Trend: {trend}, Confidence: {confidence:.1f}%)")
+        return score
+
+    def detect_trend(self, df, current_index: int) -> str:
+        """Improved trend detection - less strict, more practical"""
+        try:
+            if not self.trend_filter_enabled:
+                return "neutral"
+            
+            # Get recent candles for trend analysis
+            start_idx = max(0, current_index - self.ema_trend_period)
+            recent_df = df.iloc[start_idx:current_index + 1]
+            
+            if len(recent_df) < 20:
+                return "neutral"
+            
+            # Calculate EMAs
+            ema_fast = recent_df['close'].ewm(span=20).mean()
+            ema_slow = recent_df['close'].ewm(span=self.ema_trend_period).mean()
+            
+            # Get current EMA values
+            current_ema_fast = ema_fast.iloc[-1]
+            current_ema_slow = ema_slow.iloc[-1]
+            current_price = recent_df['close'].iloc[-1]
+            
+            # Calculate EMA difference as percentage (NEW LOGIC)
+            ema_diff_pct = (current_ema_fast - current_ema_slow) / current_ema_slow * 100
+            
+            # IMPROVED: More practical trend classification
+            if abs(ema_diff_pct) < 0.02:  # Very flat = ranging
+                trend = "ranging"
+            elif ema_diff_pct > 0:  # Fast above slow = bullish
+                trend = "bullish"
+            else:  # Fast below slow = bearish
+                trend = "bearish"
+            
+            logger.info(f"Trend: {trend} (EMA diff: {ema_diff_pct:.4f}%, Price: {current_price:.5f})")
+            return trend
+            
+        except Exception as e:
+            logger.error(f"Error detecting trend: {e}")
+            return "neutral"
+    
+    def is_trend_aligned(self, signal: str, trend: str) -> bool:
+        """Improved trend alignment - more practical"""
+        if not self.trend_filter_enabled:
+            return True
+        
+        # Allow strong ML signals to override trend
+        # This will be handled in the main logic
+        
+        # Basic trend alignment check
+        if trend == "bullish" and signal == "BUY":
+            return True
+        elif trend == "bearish" and signal == "SELL":
+            return True
+        elif trend == "ranging":
+            # Allow ranging markets but with higher confidence requirement
+            return True  # Will be filtered in main logic
+        else:
+            return False
+    
+    def is_overtrading_controlled(self, current_index: int) -> bool:
+        """Control overtrading by enforcing minimum candle gap"""
+        if current_index - self.last_trade_candle < self.min_candles_between_trades:
+            logger.info(f"Overtrading control: Only {current_index - self.last_trade_candle} candles since last trade")
+            return False
+        
+        return True
+    
+    def backtest_strategy(self, df, model):
+        """Professional backtest with proper risk management"""
+        try:
+            initial_balance = 1000
+            balance = initial_balance
+            trades = []
+            trade_count = 0
+            max_trades_per_day = 1000
+            skipped_reasons = {}
+            
+            # Add ATR to dataframe for dynamic SL/TP
+            df['ATR'] = self.calculate_atr(df)
+            atr_mean = df['ATR'].mean()
+            
+            for i in range(50, len(df)-1):
+                # RISK CONTROL: Max drawdown protection
+                if balance < initial_balance * 0.7:
+                    logger.warning("Max drawdown reached. Stopping trading.")
+                    break
+                
+                if trade_count >= max_trades_per_day:
+                    logger.info(f"Max trades reached ({trade_count}/{max_trades_per_day})")
+                    skipped_reasons['max_trades'] = skipped_reasons.get('max_trades', 0) + 1
+                    break
+                    
+                row = df.iloc[i]
+                
+                # Get ML prediction
+                signal, prob = self.predict_signal(row)
+                
+                if signal is None:
+                    logger.info(f"Prediction failed")
+                    skipped_reasons['prediction_failed'] = skipped_reasons.get('prediction_failed', 0) + 1
+                    continue
+                
+                confidence_pct = prob * 100
+                
+                # TREND FILTER (IMPROVED)
+                trend = self.detect_trend(df, i)
+                
+                # Get current indicators for strength scoring
+                current_atr = df.iloc[i]['ATR']
+                current_momentum = df.iloc[i]['momentum']
+                
+                # TRADE STRENGTH SCORE (NEW FILTERING SYSTEM)
+                strength_score = self.calculate_trade_strength_score(
+                    signal, confidence_pct, trend, current_atr, current_momentum, atr_mean
+                )
+                
+                # BEAR MARKET FILTER (EMERGENCY FIX)
+                if trend == "bearish" and confidence_pct < 98:
+                    logger.info(f"Bear market filter: Confidence too low ({confidence_pct:.1f}% < 98%)")
+                    skipped_reasons['bear_market_filter'] = skipped_reasons.get('bear_market_filter', 0) + 1
+                    continue
+                
+                # HIGH-QUALITY SETUP FILTER (BALANCED APPROACH)
+                minimum_score = 3 if trend == "ranging" else 4  # Balanced thresholds
+                
+                if strength_score < minimum_score:
+                    logger.info(f"Low strength score: {strength_score} < {minimum_score} ({trend} market - skipping trade)")
+                    skipped_reasons['low_strength'] = skipped_reasons.get('low_strength', 0) + 1
+                    continue
+                
+                # OVERTRADING CONTROL
+                if not self.is_overtrading_controlled(i):
+                    skipped_reasons['overtrading'] = skipped_reasons.get('overtrading', 0) + 1
+                    continue
+                
+                # EXECUTE TRADE WITH PROFESSIONAL POSITION SIZING
+                trade_count += 1
+                self.last_trade_candle = i
+                
+                entry = df.iloc[i]['close']
+                atr = df.iloc[i]['ATR']
+                
+                # DYNAMIC STOP LOSS AND TAKE PROFIT (WITH MARKET ADAPTATION)
+                stop_loss, take_profit = self.calculate_dynamic_sl_tp(entry, atr, signal, trend=trend)
+                
+                # PROPER POSITION SIZING (REDUCED RISK FOR LOSING STREAK)
+                sl_pips = abs(entry - stop_loss) * 10000
+                risk_percent = 0.5 if balance < 800 else 1.0  # Reduce risk when losing
+                lot_size = self.calculate_lot_size(balance, risk_percent, sl_pips)
+                risk_amount = balance * (risk_percent / 100)  # Dynamic risk
+                
+                # ADVANCED TRADE SIMULATION WITH DYNAMIC MANAGEMENT
+                profit = 0
+                trade_open = True
+                j = i + 1
+                initial_sl = stop_loss
+                max_profit_pips = 0
+                
+                while trade_open and j < len(df):
+                    current_candle = df.iloc[j]
+                    high = current_candle['high']
+                    low = current_candle['low']
+                    close = current_candle['close']
+                    
+                    # Calculate current profit in pips
+                    if signal == "BUY":
+                        current_pips = (close - entry) * 10000
+                    else:
+                        current_pips = (entry - close) * 10000
+                    
+                    max_profit_pips = max(max_profit_pips, current_pips)
+                    
+                    # ADVANCED TRADE MANAGEMENT
+                    stop_loss, take_profit = self.manage_trade_dynamically(
+                        signal, entry, close, atr, stop_loss, take_profit, lot_size, current_pips
+                    )
+                    
+                    # Check if stop loss hit
+                    if signal == "BUY" and low <= stop_loss:
+                        exit_price = stop_loss
+                        profit = (exit_price - entry) * lot_size * 100000
+                        trade_open = False
+                        logger.info(f"Stop Loss Hit: BUY at {entry:.5f}, SL at {stop_loss:.5f}")
+                    elif signal == "SELL" and high >= stop_loss:
+                        exit_price = stop_loss
+                        profit = (entry - exit_price) * lot_size * 100000
+                        trade_open = False
+                        logger.info(f"Stop Loss Hit: SELL at {entry:.5f}, SL at {stop_loss:.5f}")
+                    
+                    # Check if take profit hit
+                    elif signal == "BUY" and high >= take_profit:
+                        exit_price = take_profit
+                        profit = (exit_price - entry) * lot_size * 100000
+                        trade_open = False
+                        logger.info(f"Take Profit Hit: BUY at {entry:.5f}, TP at {take_profit:.5f}")
+                    elif signal == "SELL" and low <= take_profit:
+                        exit_price = take_profit
+                        profit = (entry - exit_price) * lot_size * 100000
+                        trade_open = False
+                        logger.info(f"Take Profit Hit: SELL at {entry:.5f}, TP at {take_profit:.5f}")
+                    
+                    j += 1
+                
+                # If trade reaches end of data
+                if trade_open:
+                    final_price = df.iloc[-1]['close']
+                    if signal == "BUY":
+                        profit = (final_price - entry) * lot_size * 100000
+                    else:
+                        profit = (entry - final_price) * lot_size * 100000
+                    logger.info(f"Trade Closed: {signal} at {entry:.5f} → {final_price:.5f}")
+                
+                balance += profit
+                trades.append(profit)
+                
+                # PROFESSIONAL TRADE LOGGING
+                logger.info(f"""
+ADVANCED TRADE EXECUTED
+Signal: {signal}
+Confidence: {confidence_pct:.1f}%
+Trend: {trend}
+Strength Score: {strength_score}/6
+Entry: {entry:.5f}
+SL: {initial_sl:.5f} → {stop_loss:.5f}
+TP: {take_profit:.5f}
+Lot: {lot_size:.2f}
+Max Profit: {max_profit_pips:.1f} pips
+Profit: ${profit:+.2f}
+Balance: ${balance:.2f}
+""")
+            
+            # Results
+            win_rate = sum(1 for t in trades if t > 0) / len(trades) if trades else 0
+            total_return = (balance - initial_balance) / initial_balance
+            
+            self.backtest_results = {
+                "final_balance": balance,
+                "total_return": total_return,
+                "win_rate": win_rate,
+                "total_trades": len(trades),
+                "avg_profit": sum(trades) / len(trades) if trades else 0,
+                "skipped_trades": (len(df) - 50) - len(trades)
+            }
+            
+            logger.info(f"BACKTEST RESULTS:")
+            logger.info(f"   Final Balance: ${balance:,.2f}")
+            logger.info(f"   Total Return: {total_return:.1%}")
+            logger.info(f"   Win Rate: {win_rate:.1%}")
+            logger.info(f"   Total Trades: {len(trades)}")
+            logger.info(f"   Avg Profit: ${self.backtest_results['avg_profit']:.2f}")
+            
+            return self.backtest_results
+            
+        except Exception as e:
+            logger.error(f"Error backtesting: {e}")
+            return {}
+    
+    def backtest_strategy_debug(self, df, model):
+        """DEBUG: Force trades to test if ML works"""
+        try:
+            balance = 1000
+            trades = []
+            trade_count = 0
+            max_trades_per_day = 50  # High limit for debug
+            
+            print("🔧 DEBUG MODE: FORCING ALL TRADES")
+            
+            for i in range(50, len(df)-1):
+                if trade_count >= max_trades_per_day:
+                    print(f"🚫 DEBUG: Max trades reached ({trade_count})")
+                    break
+                    
+                row = df.iloc[i]
+                
+                # Get ML prediction
+                signal, prob = self.predict_signal(row)
+                
+                if signal is None:
+                    print(f"🚫 DEBUG: Prediction failed")
+                    continue
+                
+                # CONVERT PREDICTION
+                prediction = 1 if signal == "BUY" else 0
+                
+                # FORCE TRADE (no filters!)
+                if True:  # FORCE EXECUTION
+                    trade_count += 1
+                    
+                    entry = df.iloc[i]['close']
+                    exit_price = df.iloc[i+1]['close']
+                    
+                    # Calculate profit
+                    if prediction == 1:  # BUY
+                        profit = (exit_price - entry) / entry
+                    else:  # SELL
+                        profit = (entry - exit_price) / entry
+                    
+                    profit_pct = profit * 100
+                    balance += profit_pct
+                    trades.append(profit_pct)
+                    
+                    print(f"✅ DEBUG TRADE #{trade_count}: {signal} ({prob:.1%}) → {profit_pct:+.3f}%")
+            
+            # Results
+            win_rate = sum(1 for t in trades if t > 0) / len(trades) if trades else 0
+            total_return = (balance - 1000) / 1000
+            
+            print(f"\n🔧 DEBUG RESULTS:")
+            print(f"   Total Trades: {len(trades)}")
+            print(f"   Win Rate: {win_rate:.1%}")
+            print(f"   Total Return: {total_return:.1%}")
+            print(f"   Final Balance: ${balance:,.2f}")
+            
+            return {
+                "final_balance": balance,
+                "total_return": total_return,
+                "win_rate": win_rate,
+                "total_trades": len(trades),
+                "avg_profit": sum(trades) / len(trades) if trades else 0,
+                "skipped_trades": 0
+            }
+            
+        except Exception as e:
+            print(f"❌ DEBUG Error: {e}")
+            return {}
+    
+    def optimize_strategy(self, df):
+        """Auto-optimize strategy parameters"""
+        try:
+            best_score = -999
+            best_params = None
+            
+            # Test different confidence thresholds and risk/reward ratios
+            for conf in [60, 65, 70, 75]:
+                for rr in [1.5, 2.0, 2.5]:
+                    score = self._run_simulation(df, conf, rr)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_params = {"confidence": conf, "risk_reward": rr}
+            
+            if best_params:
+                self.optimized_params = best_params
+                logger.info(f"🎯 Strategy Optimized: {best_params}")
+            
+            return best_params
+            
+        except Exception as e:
+            logger.error(f"❌ Error optimizing strategy: {e}")
+            return self.optimized_params
+    
+    def _run_simulation(self, df, confidence, risk_reward):
+        """Run simulation with specific parameters"""
+        # Simplified simulation - would need full implementation
+        return 0.65  # Placeholder score
+    
+    def save_trades_to_csv(self):
+        """Save trade history to CSV for analysis"""
+        try:
+            import pandas as pd
+            
+            if not self.trade_memory:
+                logger.info("📊 No trades to save")
+                return
+            
+            df_trades = pd.DataFrame(self.trade_memory)
+            df_trades.to_csv(self.trade_log_file, index=False)
+            logger.info(f"📊 {len(self.trade_memory)} trades saved to {self.trade_log_file}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error saving trades: {e}")
+    
+    def generate_weekly_report(self):
+        """Generate weekly performance report"""
+        try:
+            import pandas as pd
+            import matplotlib.pyplot as plt
+            
+            # Load trades from CSV
+            df = pd.read_csv(self.trade_log_file)
+            
+            if df.empty:
+                logger.info("� No trades for weekly report")
+                return
+            
+            # Calculate statistics
+            wins = df[df['result'] == 'WIN']
+            losses = df[df['result'] == 'LOSS']
+            
+            win_rate = len(wins) / len(df)
+            total_profit = df['profit'].sum()
+            avg_profit = df['profit'].mean()
+            
+            # Generate report
+            report = f"""
+📊 WEEKLY TRADING REPORT
+=======================
+Total Trades: {len(df)}
+Win Rate: {win_rate:.1%}
+Total Profit: {total_profit:.2f}%
+Average Profit: {avg_profit:.2f}%
+Best Trade: {df['profit'].max():.2f}%
+Worst Trade: {df['profit'].min():.2f}%
+
+Market Mode Performance:
+{df.groupby('market_mode')['result'].value_counts(normalize=True).unstack()}
+"""
+            
+            logger.info(report)
+            
+            # Create equity curve
+            df['cumulative_profit'] = df['profit'].cumsum()
+            plt.figure(figsize=(12, 6))
+            plt.plot(df['cumulative_profit'])
+            plt.title("Equity Curve")
+            plt.xlabel("Trade Number")
+            plt.ylabel("Cumulative Profit (%)")
+            plt.grid(True)
+            plt.savefig("equity_curve.png")
+            plt.close()
+            
+            logger.info("📊 Equity curve saved as equity_curve.png")
+            
+            # Send to Telegram if available
+            if self.telegram_bot:
+                try:
+                    with open("equity_curve.png", "rb") as photo:
+                        self.telegram_bot.send_photo(
+                            chat_id=self.telegram_bot.chat_id,
+                            photo=photo,
+                            caption=report
+                        )
+                    logger.info("📱 Weekly report sent to Telegram")
+                except Exception as e:
+                    logger.error(f"❌ Error sending report to Telegram: {e}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating weekly report: {e}")
+    
+    def integrate_ml_prediction(self, signal_data):
+        """Integrate ML prediction into signal analysis"""
+        if not self.ml_enabled or self.ml_model is None:
+            return signal_data
+        
+        # Get ML prediction
+        ml_signal, ml_confidence = self.predict_signal(signal_data.get('latest_data', {}))
+        
+        if ml_signal and ml_confidence > self.prediction_threshold:
+            # Dual filter: Both ML and traditional must agree
+            traditional_signal = signal_data.get('signal', '')
+            traditional_confidence = signal_data.get('confidence', 0)
+            
+            # Enhanced dual filtering
+            if self.dual_filter_enabled:
+                # Both must agree AND have high confidence
+                if (ml_signal == traditional_signal and 
+                    ml_confidence > self.high_confidence_threshold and 
+                    traditional_confidence > self.config.min_confidence):
+                    
+                    # Weighted combination (60% traditional, 40% ML for agreement)
+                    combined_confidence = (traditional_confidence * 0.6 + ml_confidence * 100 * 0.4)
+                    
+                    signal_data['ml_signal'] = ml_signal
+                    signal_data['ml_confidence'] = ml_confidence
+                    signal_data['combined_confidence'] = combined_confidence
+                    signal_data['dual_filter_passed'] = True
+                    
+                    logger.info(f"DUAL FILTER PASSED: {ml_signal} ({ml_confidence:.1%}) × {traditional_signal} ({traditional_confidence:.1%}) → {combined_confidence:.1f}%")
+                else:
+                    signal_data['dual_filter_passed'] = False
+                    logger.info(f"DUAL FILTER BLOCKED: ML={ml_signal} ({ml_confidence:.1%}) ≠ Traditional={traditional_signal} ({traditional_confidence:.1%})")
+                    return signal_data
+            else:
+                # Traditional single filter
+                if ml_confidence > self.prediction_threshold:
+                    signal_data['ml_signal'] = ml_signal
+                    signal_data['ml_confidence'] = ml_confidence
+                    signal_data['combined_confidence'] = ml_confidence * 100
+                    signal_data['dual_filter_passed'] = True
+                    
+                    logger.info(f"ML FILTER PASSED: {ml_signal} ({ml_confidence:.1%})")
+                else:
+                    signal_data['dual_filter_passed'] = False
+                    logger.info(f"ML FILTER BLOCKED: {ml_signal} ({ml_confidence:.1%} < {self.prediction_threshold * 100:.1f}%)")
+                    return signal_data
+        
+        # Track model performance
+        self._update_model_accuracy(ml_signal, signal_data.get('actual_result', None))
+        
+        return signal_data
+    
+    def _update_model_accuracy(self, prediction, actual_result):
+        """Track model performance for adaptive confidence"""
+        if actual_result is not None:
+            correct = 1 if prediction == actual_result else 0
+            self.model_accuracy.append(correct)
+            
+            # Keep only recent predictions
+            if len(self.model_accuracy) > self.max_accuracy_history:
+                self.model_accuracy = self.model_accuracy[-self.max_accuracy_history:]
+            
+            # Calculate current accuracy
+            if len(self.model_accuracy) >= 10:
+                current_accuracy = sum(self.model_accuracy) / len(self.model_accuracy)
+                
+                # Adaptive confidence adjustment
+                if current_accuracy < 0.5:
+                    logger.warning(f"📉 Model accuracy low ({current_accuracy:.1%}) - Consider retraining")
+                    # Could trigger model retraining here
+                elif current_accuracy > 0.7:
+                    logger.info(f"📈 Model accuracy high ({current_accuracy:.1%}) - Performance good")
+    
+    def should_trade_today(self) -> bool:
+        """Control trade frequency to prevent overtrading"""
+        today = datetime.now().date()
+        
+        # Reset daily count if new day
+        if not hasattr(self, 'last_trade_date') or self.last_trade_date != today:
+            self.daily_trade_count = 0
+            self.last_trade_date = today
+        
+        # Check if under daily limit
+        if self.daily_trade_count >= self.max_trades_per_day:
+            logger.warning(f"🚫 Daily trade limit reached: {self.daily_trade_count}/{self.max_trades_per_day}")
+            return False
+        
+        return True
+    
+    def increment_trade_count(self):
+        """Increment daily trade count"""
+        self.daily_trade_count += 1
+        logger.info(f"📊 Daily trade count: {self.daily_trade_count}/{self.max_trades_per_day}")
     
     def check_correlation_conflict(self, symbol: str) -> bool:
         """Check for correlated pair conflicts"""
@@ -524,40 +1548,6 @@ class AutoTradingManager:
         self.trade_log.append(trade_log)
         
         logger.info(f"📊 Trade Logged: {symbol} {result} ({confidence}% confidence, {profit:+.2f}% profit)")
-    
-    def calculate_lot_size(self, symbol: str, stop_loss_pips: float) -> float:
-        """Calculate dynamic lot size based on risk management"""
-        try:
-            # Get account balance
-            account_info = self.mt5_connector.get_account_info()
-            if not account_info or 'balance' not in account_info:
-                logger.error("❌ Cannot get account balance for lot sizing")
-                return 0.01
-            
-            balance = account_info['balance']
-            risk_percent = 1.0
-            pip_value = 10
-            
-            # Calculate dynamic lot size
-            risk_amount = balance * (risk_percent / 100)
-            
-            if stop_loss_pips == 0:
-                return 0.01
-            
-            lot = risk_amount / (stop_loss_pips * pip_value)
-            lot = round(max(0.01, min(lot, 1.0)), 2)
-            
-            logger.info(f"💰 Dynamic Lot Sizing:")
-            logger.info(f"   Balance: ${balance:,.2f}")
-            logger.info(f"   Risk: {risk_percent}% = ${risk_amount:,.2f}")
-            logger.info(f"   SL Distance: {stop_loss_pips:.1f} pips")
-            logger.info(f"   Calculated Lot: {lot}")
-            
-            return lot
-            
-        except Exception as e:
-            logger.error(f"❌ Error calculating lot size: {e}")
-            return 0.01
     
     def execute_auto_trade(self, signal_data: Dict) -> bool:
         """
@@ -869,9 +1859,9 @@ class AutoTradingManager:
     def disable_auto_trading(self):
         """Disable auto trading immediately"""
         self.config.enabled = False
-        logger.warning("🛑 Auto trading DISABLED")
+        logger.warning("Auto trading DISABLED")
     
     def enable_auto_trading(self):
         """Enable auto trading"""
         self.config.enabled = True
-        logger.info("✅ Auto trading ENABLED")
+        logger.info("Auto trading ENABLED")

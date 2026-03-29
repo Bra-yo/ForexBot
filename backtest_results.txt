@@ -1,0 +1,7 @@
+BACKTESTING RESULTS
+===================
+Final Balance: $1,000.00
+Total Return: 0.0%
+Win Rate: 0.0%
+Total Trades: 0
+Average Profit: 0.0000

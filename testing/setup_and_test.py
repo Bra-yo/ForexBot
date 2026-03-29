@@ -20,26 +20,26 @@ def install_basic_deps():
     
     try:
         for dep in basic_deps:
-            print(f"📦 Installing {dep}...")
+            print(f"Installing {dep}...")
             result = subprocess.run([
                 sys.executable, "-m", "pip", "install", dep
             ], capture_output=True, text=True)
             
             if result.returncode == 0:
-                print(f"✅ {dep} installed successfully")
+                print(f"{dep} installed successfully")
             else:
-                print(f"❌ Failed to install {dep}: {result.stderr}")
+                print(f"Failed to install {dep}: {result.stderr}")
         
-        print("✅ Basic dependencies installation completed!")
+        print("Basic dependencies installation completed!")
         return True
         
     except Exception as e:
-        print(f"❌ Error installing dependencies: {e}")
+        print(f"Error installing dependencies: {e}")
         return False
 
 def run_basic_test():
     """Run a basic test to verify setup"""
-    print("\n🧪 Running Basic Setup Test...")
+    print("\nRunning Basic Setup Test...")
     
     test_code = '''
 import sys
@@ -49,7 +49,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 try:
     import pandas as pd
     import numpy as np
-    print("✅ Pandas and NumPy imported successfully")
+    print("Pandas and NumPy imported successfully")
     
     # Test basic functionality
     dates = pd.date_range(start='2023-01-01', periods=10, freq='H')
@@ -63,18 +63,18 @@ try:
     })
     data.set_index('timestamp', inplace=True)
     
-    print(f"✅ Sample data created: {len(data)} rows")
-    print(f"✅ Data columns: {list(data.columns)}")
-    print(f"✅ Price range: {data['close'].min():.5f} - {data['close'].max():.5f}")
+    print(f"Sample data created: {len(data)} rows")
+    print(f"Data columns: {list(data.columns)}")
+    print(f"Price range: {data['close'].min():.5f} - {data['close'].max():.5f}")
     
-    print("\\n🎉 BASIC SETUP TEST PASSED!")
-    print("🚀 Your Python environment is ready for BrayoForexBot!")
+    print("\nBASIC SETUP TEST PASSED!")
+    print("Your Python environment is ready for BrayoForexBot!")
     
 except ImportError as e:
-    print(f"❌ Import error: {e}")
-    print("📦 Please run: python -m pip install pandas numpy matplotlib")
+    print(f"Import error: {e}")
+    print("Please run: python -m pip install pandas numpy matplotlib")
 except Exception as e:
-    print(f"❌ Error: {e}")
+    print(f"Error: {e}")
 '''
     
     # Write test code to temporary file
@@ -90,7 +90,7 @@ except Exception as e:
         
         print(result.stdout)
         if result.stderr:
-            print(f"❌ Test errors: {result.stderr}")
+            print(f"Test errors: {result.stderr}")
         
         # Clean up
         test_file.unlink()
@@ -98,37 +98,37 @@ except Exception as e:
         return result.returncode == 0
         
     except Exception as e:
-        print(f"❌ Error running basic test: {e}")
+        print(f"Error running basic test: {e}")
         return False
 
 def show_next_steps():
     """Show next steps for full testing"""
     print("\n" + "="*60)
-    print("📋 NEXT STEPS FOR FULL TESTING")
+    print("NEXT STEPS FOR FULL TESTING")
     print("="*60)
     
-    print("\n📦 1. Install All Dependencies:")
+    print("\n1. Install All Dependencies:")
     print("   python -m pip install pandas numpy matplotlib seaborn yfinance requests python-dotenv")
     print("   python -m pip install scikit-learn xgboost lightgbm joblib optuna")
     
-    print("\n🧪 2. Run Full Test Suite:")
+    print("\n2. Run Full Test Suite:")
     print("   python testing/run_all_tests.py")
     
-    print("\n🔧 3. Individual Tests:")
+    print("\n3. Individual Tests:")
     print("   python testing/test_suite.py          # Unit tests")
     print("   python testing/integration_test.py     # Integration tests") 
     print("   python testing/mt5_connection_test.py # MT5 tests")
     
-    print("\n🌐 4. Launch Dashboard:")
+    print("\n4. Launch Dashboard:")
     print("   python dashboard/run_dashboard.py")
     
-    print("\n🏦 5. Test MT5 Connection:")
+    print("\n5. Test MT5 Connection:")
     print("   - Open MetaTrader 5")
     print("   - Enable 'Algo Trading'")
     print("   - Login to DEMO account")
     print("   - Run: python testing/mt5_connection_test.py")
     
-    print("\n🤖 6. Train AI Models:")
+    print("\n6. Train AI Models:")
     print("   - Collect historical data")
     print("   - Run: python ai/train_models.py")
     
@@ -136,7 +136,7 @@ def show_next_steps():
 
 def main():
     """Main setup and test function"""
-    print("🚀 BrayoForexBot - Quick Setup & Test")
+    print("BrayoForexBot - Quick Setup & Test")
     print("="*60)
     
     # Step 1: Install basic dependencies
@@ -146,9 +146,9 @@ def main():
             # Step 3: Show next steps
             show_next_steps()
         else:
-            print("\n❌ Basic test failed. Check your Python setup.")
+            print("\nBasic test failed. Check your Python setup.")
     else:
-        print("\n❌ Dependency installation failed. Check your internet connection.")
+        print("\nDependency installation failed. Check your internet connection.")
 
 if __name__ == "__main__":
     main()

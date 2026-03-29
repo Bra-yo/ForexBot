@@ -1,0 +1,847 @@
+"""
+LIVE TRADING EXECUTOR
+Professional-grade execution with advanced position management
+"""
+
+import logging
+import time
+from datetime import datetime, timedelta
+import time
+import os
+import sys
+import signal
+import threading
+import MetaTrader5 as mt5
+from mt5_executor import place_trade, check_safety_filters, get_account_info, check_open_positions, close_old_positions
+from professional_trade_executor import close_trade_professional, close_all_positions_professional
+from level3_intelligence import IntelligentTradeManager, AdaptiveLotSizer, ProfitTargetManager
+from advanced_telegram_assistant import AdvancedTelegramAssistant
+from trade_manager import TradeManager
+from risk_manager import RiskManager
+from signal_filter import SignalFilter
+from config import *
+
+def close_mt5_trade(position):
+    """PART 4: Proper MT5 position closing function with retry system"""
+    symbol = position.symbol
+    volume = position.volume
+    ticket = position.ticket
+    
+    # Retry system
+    for attempt in range(3):
+        try:
+            # Get current price
+            tick = mt5.symbol_info_tick(symbol)
+            if not tick:
+                logger.error(f"Failed to get tick data for {symbol} (attempt {attempt + 1})")
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+                return None
+            
+            # Determine close price (opposite of position type)
+            price = tick.bid if position.type == 0 else tick.ask  # 0=BUY close at BID, 1=SELL close at ASK
+            
+            # Create close request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": volume,
+                "type": mt5.ORDER_TYPE_SELL if position.type == 0 else mt5.ORDER_TYPE_BUY,
+                "position": ticket,
+                "price": price,
+                "deviation": 20,
+                "magic": 123456,
+                "comment": "NYX AI CLOSE",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            
+            # Send close request
+            result = mt5.order_send(request)
+            
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"Successfully closed position {ticket} for {symbol}")
+                return result
+            else:
+                logger.error(f"Failed to close position {ticket}: {result.comment if result else 'No result'} (attempt {attempt + 1})")
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+                return result
+                
+        except Exception as e:
+            logger.error(f"Error closing position {ticket}: {e} (attempt {attempt + 1})")
+            if attempt < 2:
+                time.sleep(0.5)
+                continue
+            return None
+    
+    return None
+
+logger = logging.getLogger(__name__)
+
+class LiveTradingExecutor:
+    """Professional live trading execution with advanced management"""
+    
+    def __init__(self, telegram_token=None, telegram_chat_id=None):
+        self.telegram = AdvancedTelegramAssistant(telegram_token, telegram_chat_id) if telegram_token else None
+        self.is_running = False
+        self.running = True  # NEW: Global running flag
+        
+        # PART 2: TELEGRAM ANTI-SPAM SYSTEM
+        self._telegram_last_sent = {}  # Track last message time per symbol
+        self._telegram_rate_limit = 120  # 2 minutes in seconds
+        
+        # PART 9: SINGLE INSTANCE PROTECTION
+        self._lock_file = "nyx.lock"
+        if self._check_lock_file():
+            logger.error("Nyx AI is already running! Only one instance allowed.")
+            print("❌ ERROR: Nyx AI is already running!")
+            print("   Please stop the existing instance first.")
+            sys.exit(1)
+        self._create_lock_file()
+        
+        # PART 6: PROFIT MANAGEMENT SYSTEM
+        self._trade_profits = {}  # Track floating profit per trade
+        self._breakeven_moved = {}  # Track which trades have breakeven moved
+        
+        # LEVEL 4: SMART EXECUTION ENGINE
+        self._last_trade_time = {}  # Anti-spam cooldown
+        self._trade_cooldown = 60  # 60 seconds between trades per symbol
+        
+        # Initialize professional modules
+        self.trade_manager = TradeManager()
+        self.risk_manager = RiskManager()
+        self.signal_filter = SignalFilter()
+        
+        # NEW: Initialize Level 3 intelligence
+        self.intelligent_manager = IntelligentTradeManager()
+        self.adaptive_sizer = AdaptiveLotSizer()
+        self.profit_targets = ProfitTargetManager()
+        
+        # Log process ID
+        import os
+        logger.info(f"Bot process ID: {os.getpid()}")
+        
+    def _can_send_telegram_message(self, symbol, message_type='general'):
+        """PART 2: Check if Telegram message can be sent (rate limiting)"""
+        if not self.telegram:
+            return False
+            
+        current_time = time.time()
+        key = f"{symbol}_{message_type}"
+        
+        # Check rate limit
+        if key in self._telegram_last_sent:
+            time_diff = current_time - self._telegram_last_sent[key]
+            if time_diff < self._telegram_rate_limit:
+                return False
+        
+        self._telegram_last_sent[key] = current_time
+        return True
+        
+    def _send_critical_telegram(self, message, symbol='general'):
+        """Send critical Telegram message (bypasses rate limit for critical errors)"""
+        if self.telegram:
+            self.telegram.send_message(message)
+            
+    def _send_trade_telegram(self, message, symbol='general'):
+        """Send trade-related Telegram message with rate limiting"""
+        if self._can_send_telegram_message(symbol, 'trade'):
+            self.telegram.send_message(message)
+        
+    def _check_lock_file(self):
+        """PART 9: Check if lock file exists"""
+        return os.path.exists(self._lock_file)
+        
+    def _create_lock_file(self):
+        """PART 9: Create lock file with current PID"""
+        try:
+            with open(self._lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+        except Exception as e:
+            logger.error(f"Failed to create lock file: {e}")
+            
+    def _remove_lock_file(self):
+        """PART 9: Remove lock file on shutdown"""
+        try:
+            if os.path.exists(self._lock_file):
+                os.remove(self._lock_file)
+                logger.info("Lock file removed")
+        except Exception as e:
+            logger.error(f"Failed to remove lock file: {e}")
+            
+    def stop(self):
+        """PART 3: Safe stop function"""
+        self.running = False
+        self.is_running = False
+        logger.info("Bot stopping safely...")
+        if self.telegram:
+            self.telegram.send_message("🛑 NYX AI Bot stopping safely...")
+        self._remove_lock_file()  # PART 9: Clean up lock file
+            
+    def signal_handler(self, signum, frame):
+        """PART 3: Handle SIGINT and SIGTERM for graceful shutdown"""
+        logger.info(f"Received signal {signum} - initiating graceful shutdown...")
+        self.stop()
+            
+    def check_stop_file(self):
+        """Check for emergency stop file"""
+        import os
+        if os.path.exists("stop.txt"):
+            logger.warning("Emergency stop file detected - stopping bot")
+            if self.telegram:
+                self.telegram.send_message("🚨 EMERGENCY STOP ACTIVATED - Bot stopping")
+            os.remove("stop.txt")  # Clean up
+            return True
+        return False
+        
+    def _manage_profit_protection(self):
+        """PART 6: Manage profit protection - move SL to breakeven and trailing stops"""
+        try:
+            positions = mt5.positions_get()
+            if not positions:
+                return
+                
+            for position in positions:
+                ticket = position.ticket
+                current_profit = position.profit
+                entry_price = position.price_open
+                current_sl = position.sl
+                
+                # Skip if position is already closed or no SL
+                if ticket not in self._trade_profits:
+                    self._trade_profits[ticket] = current_profit
+                
+                # Calculate profit percentages
+                if current_sl == 0 or entry_price == 0:
+                    continue
+                    
+                # Calculate risk distance (initial SL distance)
+                if position.type == 0:  # BUY
+                    risk_distance = entry_price - current_sl
+                    current_risk = entry_price - mt5.symbol_info_tick(position.symbol).bid
+                else:  # SELL
+                    risk_distance = current_sl - entry_price
+                    current_risk = mt5.symbol_info_tick(position.symbol).ask - entry_price
+                
+                if risk_distance <= 0:
+                    continue
+                    
+                profit_ratio = current_risk / risk_distance
+                
+                # Move to breakeven at 50% profit (LEVEL 4: Enhanced from 50% to 30% for faster locking)
+                if profit_ratio >= 0.3 and ticket not in self._breakeven_moved:
+                    self._move_to_breakeven(position, ticket)
+                    self._breakeven_moved[ticket] = True
+                    
+                # Activate trailing stop at 75% profit
+                elif profit_ratio >= 0.75:
+                    self._activate_trailing_stop(position, ticket)
+                    
+        except Exception as e:
+            logger.error(f"Profit management error: {e}")
+            
+    def _move_to_breakeven(self, position, ticket):
+        """Move stop loss to breakeven"""
+        try:
+            new_sl = position.price_open
+            if position.sl == new_sl:
+                return
+                
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "symbol": position.symbol,
+                "sl": new_sl,
+                "position": ticket,
+                "magic": 123456,
+            }
+            
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"Moved {position.symbol} #{ticket} to breakeven")
+                
+        except Exception as e:
+            logger.error(f"Error moving to breakeven: {e}")
+            
+    def _activate_trailing_stop(self, position, ticket):
+        """Activate trailing stop for position"""
+        try:
+            tick = mt5.symbol_info_tick(position.symbol)
+            if not tick:
+                return
+                
+            # Calculate trailing stop distance (e.g., 20 pips)
+            trail_distance = 0.0020  # 20 pips for 5-digit brokers
+            
+            if position.type == 0:  # BUY
+                new_sl = tick.bid - trail_distance
+                if new_sl <= position.sl:
+                    return  # Only trail up
+            else:  # SELL
+                new_sl = tick.ask + trail_distance
+                if new_sl >= position.sl:
+                    return  # Only trail down
+                    
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "symbol": position.symbol,
+                "sl": new_sl,
+                "position": ticket,
+                "magic": 123456,
+            }
+            
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"Trailing stop activated for {position.symbol} #{ticket}")
+                
+        except Exception as e:
+            logger.error(f"Error activating trailing stop: {e}")
+        
+    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="EURUSD"):
+        """Execute live trade with all safety checks"""
+        
+        try:
+            # PART 1: VALIDATE TRADE DATA BEFORE FORMATTING
+            if entry_price is None or lot_size is None:
+                logger.warning("Invalid trade data - skipped")
+                return False
+            
+            # Allow None for SL/TP - they will be calculated internally
+            
+            # Calculate SL/TP if not provided
+            if stop_loss is None or take_profit is None:
+                # Use ATR-based calculation (default 20 pips SL, 40 pips TP)
+                atr_distance = 0.0020  # 20 pips for 5-digit brokers
+                
+                if signal == "BUY":
+                    if stop_loss is None:
+                        stop_loss = entry_price - atr_distance
+                    if take_profit is None:
+                        take_profit = entry_price + (atr_distance * 2)  # 1:2 RR
+                else:  # SELL
+                    if stop_loss is None:
+                        stop_loss = entry_price + atr_distance
+                    if take_profit is None:
+                        take_profit = entry_price - (atr_distance * 2)  # 1:2 RR
+            
+            # PART 7: TRADE QUALITY FILTER
+            if confidence < 70.0:
+                # PART 10: Reduce noise - only log critical blocks
+                logger.debug(f"Trade blocked: Low confidence ({confidence:.1f}% < 70%)")
+                return False
+                
+            # Calculate Risk/Reward ratio
+            if stop_loss and take_profit and entry_price:
+                if signal == "BUY":
+                    risk = entry_price - stop_loss
+                    reward = take_profit - entry_price
+                else:  # SELL
+                    risk = stop_loss - entry_price
+                    reward = entry_price - take_profit
+                    
+                if risk <= 0:
+                    logger.debug("Trade blocked: Invalid risk calculation")
+                    return False
+                    
+                rr_ratio = reward / risk
+                if rr_ratio < 1.5:
+                    logger.debug(f"Trade blocked: Low R/R ratio ({rr_ratio:.2f} < 1.5)")
+                    return False
+            
+            # Check spread
+            tick = mt5.symbol_info_tick(symbol)
+            if tick:
+                # CRITICAL FIX 2: Fix spread calculation - use proper formula
+                spread_points = tick.ask - tick.bid
+                symbol_info = mt5.symbol_info(symbol)
+                if symbol_info and symbol_info.point > 0:
+                    spread_pips = spread_points / symbol_info.point
+                else:
+                    spread_pips = spread_points * 10000  # Fallback for 5-digit brokers
+                    
+                if spread_pips > 3.0:
+                    logger.debug(f"Trade blocked: High spread ({spread_pips:.1f} > 3.0 pips)")
+                    return False
+            
+            # CRITICAL FIX 1: Add final None validation before logging
+            if any(val is None for val in [entry_price, stop_loss, take_profit, lot_size]):
+                logger.warning("Invalid trade data - skipped (None values detected)")
+                return False
+            
+            # LEVEL 4: SMART EXECUTION ENGINE
+            # 1. Anti-spam protection
+            current_time = time.time()
+            if symbol in self._last_trade_time:
+                if current_time - self._last_trade_time[symbol] < self._trade_cooldown:
+                    logger.debug(f"Trade blocked: Cooldown active for {symbol}")
+                    return False
+            
+            # 2. Only trade HIGH QUALITY signals
+            if confidence < 80.0:  # Increased from 70%
+                logger.debug(f"Trade blocked: Low confidence ({confidence:.1f}% < 80%)")
+                return False
+            
+            logger.info(f"LIVE TRADE REQUEST:")
+            logger.info(f"   Signal: {signal}")
+            logger.info(f"   Confidence: {confidence:.1f}%")
+            logger.info(f"   Entry: {entry_price:.5f}")
+            logger.info(f"   SL: {stop_loss:.5f}")
+            logger.info(f"   TP: {take_profit:.5f}")
+            logger.info(f"   Lot: {lot_size:.2f}")
+            
+            # PROFESSIONAL RISK MANAGEMENT
+            # 1. Session Filter
+            session_allowed, session_reason = self.risk_manager.check_session_filter()
+            if not session_allowed:
+                logger.warning(f" Trade blocked: {session_reason}")
+                # Only send Telegram once per hour for session blocks
+                current_hour = datetime.now().hour
+                if not hasattr(self, '_last_session_block_hour') or current_hour != self._last_session_block_hour:
+                    if self.telegram:
+                        self.telegram.send_message(f"⏰ Trading blocked: {session_reason}")
+                    self._last_session_block_hour = current_hour
+                return False
+                
+            # 2. Volatility Filter
+            volatility_allowed, volatility_reason = self.risk_manager.check_volatility_filter(symbol)
+            if not volatility_allowed:
+                logger.warning(f" Trade blocked: {volatility_reason}")
+                # Only send Telegram once per hour for volatility blocks
+                current_hour = datetime.now().hour
+                if not hasattr(self, '_last_volatility_block_hour') or current_hour != self._last_volatility_block_hour:
+                    if self.telegram:
+                        self.telegram.send_message(f"📊 Volatility filter: {volatility_reason}")
+                    self._last_volatility_block_hour = current_hour
+                return False
+                
+            # 3. Correlation Control
+            correlation_allowed, correlation_reason = self.risk_manager.check_correlation_control(symbol, signal)
+            if not correlation_allowed:
+                logger.warning(f" Trade blocked: {correlation_reason}")
+                # Only send Telegram once per hour for correlation blocks
+                current_hour = datetime.now().hour
+                if not hasattr(self, '_last_correlation_block_hour') or current_hour != self._last_correlation_block_hour:
+                    if self.telegram:
+                        self.telegram.send_message(f"🔗 Correlation control: {correlation_reason}")
+                    self._last_correlation_block_hour = current_hour
+                return False
+                
+            # 4. Global Risk Check
+            risk_allowed, risk_percent, risk_reason = self.risk_manager.check_global_risk()
+            if not risk_allowed:
+                logger.warning(f" Trade blocked: {risk_reason}")
+                # Only send Telegram once per hour for global risk blocks
+                current_hour = datetime.now().hour
+                if not hasattr(self, '_last_risk_block_hour') or current_hour != self._last_risk_block_hour:
+                    if self.telegram:
+                        self.telegram.send_message(f"⚠️ Global risk: {risk_reason}")
+                    self._last_risk_block_hour = current_hour
+                return False
+            
+            # LEGACY SAFETY FILTERS (Keep for compatibility)
+            tick = mt5.symbol_info_tick(symbol)
+            if tick:
+                spread_points = (tick.ask - tick.bid) / mt5.symbol_info(symbol).point
+                spread_pips = spread_points * 10
+                self.risk_manager.update_average_spread(symbol, spread_points)
+            else:
+                spread_pips = 0.0
+            
+            # NEW: Call with all required arguments
+            safety_passed, safety_message = check_safety_filters(
+                self, symbol, lot_size, signal, spread_pips, confidence, 'M15'
+            )
+            
+            if not safety_passed:
+                logger.warning(f" Trade blocked: {safety_message}")
+                # Only send Telegram once per hour for safety blocks
+                current_hour = datetime.now().hour
+                if not hasattr(self, '_last_safety_block_hour') or current_hour != self._last_safety_block_hour:
+                    if self.telegram:
+                        self.telegram.send_message(f"⚠️ Safety filter: {safety_message}")
+                    self._last_safety_block_hour = current_hour
+                return False
+            
+            # NEW: Level 3 Intelligence Check
+            account = get_account_info()
+            if account:
+                intelligent_decision, decision_reason = self.intelligent_manager.should_execute_trade(
+                    symbol, signal, confidence, 'M15'
+                )
+                
+                if not intelligent_decision:
+                    logger.warning(f" Trade blocked by intelligence: {decision_reason}")
+                    if self.telegram:
+                        self.telegram.send_message(f"🧠 Intelligence filter: {decision_reason}")
+                    return False
+                
+                # NEW: Adaptive lot sizing
+                adaptive_lot = self.adaptive_sizer.calculate_lot_size(
+                    confidence, account['balance']
+                )
+                
+                # NEW: Calculate profit targets
+                profit_levels = self.profit_targets.calculate_profit_levels(entry_price, stop_loss, signal)
+                if profit_levels:
+                    take_profit = profit_levels['partial_tp']  # Use 1.5R for partial
+                    logger.info(f"Using intelligent profit targets: Partial TP at {take_profit:.5f}")
+                else:
+                    take_profit = None  # Use original calculation
+            
+            # EXECUTE TRADE
+            result = place_trade(
+                symbol=symbol,
+                signal=signal,
+                lot=lot_size,
+                sl=stop_loss,
+                tp=take_profit
+            )
+            
+            if result:
+                # LEVEL 4: Update trade time for anti-spam
+                self._last_trade_time[symbol] = current_time
+                
+                # Register trade with professional manager
+                self.trade_manager.register_trade(
+                    result.order, symbol, signal, entry_price, 
+                    stop_loss, take_profit, lot_size
+                )
+                
+                # Log professional entry reason
+                if ENABLE_ADVANCED_LOGGING and LOG_ENTRY_REASONS:
+                    entry_reason = f"Signal: {signal} ({confidence:.1f}%), Session: {session_reason.split(':')[0].strip()}, Risk: {risk_percent:.1f}%"
+                    logger.info(f"ENTRY REASON: {entry_reason}")
+                
+                # Send Telegram notification
+                self._send_trade_notification(
+                    symbol=symbol,
+                    signal=signal,
+                    confidence=confidence,
+                    entry=entry_price,
+                    sl=stop_loss,
+                    tp=take_profit,
+                    lot=lot_size,
+                    order_id=result.order,
+                    success=True
+                )
+                
+                return True
+            else:
+                if ENABLE_EXECUTION_RETRIES:
+                    # Retry logic can be implemented here
+                    pass
+                    
+                # Send failed notification
+                self._send_trade_notification(
+                    symbol=symbol,
+                    signal=signal,
+                    confidence=confidence,
+                    entry=entry_price,
+                    sl=stop_loss,
+                    tp=take_profit,
+                    lot=lot_size,
+                    success=False
+                )
+                
+                logger.error(f"LIVE TRADE FAILED!")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Live trade execution error: {e}")
+            if self.telegram:
+                self.telegram.send_message(f"🚨 TRADE EXECUTION ERROR: {e}")
+            return False
+    
+    def _send_trade_notification(self, symbol, signal, confidence, entry, sl, tp, lot, order_id=None, success=True, error=None):
+        """Send detailed trade notification to Telegram"""
+        
+        if not self.telegram:
+            return
+        
+        if success:
+            message = f"""
+LIVE TRADE EXECUTED
+
+Symbol: {symbol if symbol else 'N/A'}
+Signal: {signal if signal else 'N/A'}
+Lot Size: {lot:.2f if lot is not None else 0.00}
+Entry: {entry:.5f if entry is not None else 0.00000}
+Stop Loss: {sl:.5f if sl is not None else 0.00000}
+Take Profit: {tp:.5f if tp is not None else 0.00000}
+Confidence: {confidence:.1f if confidence is not None else 0.0}%
+Order ID: {order_id if order_id else 'N/A'}
+
+Time: {datetime.now().strftime('%H:%M:%S')}
+Status: ACTIVE
+Bot: Nyx AI - 24/7 Market Intelligence
+"""
+        else:
+            message = f"""
+LIVE TRADE EXECUTION FAILED
+
+Symbol: {symbol if symbol else 'N/A'}
+Signal: {signal if signal else 'N/A'}
+Lot Size: {lot:.2f if lot is not None else 0.00}
+Entry: {entry:.5f if entry is not None else 0.00000}
+Confidence: {confidence:.1f if confidence is not None else 0.0}%
+Error: {error if error else 'Unknown error'}
+
+Time: {datetime.now().strftime('%H:%M:%S')}
+Status: FAILED
+Bot: Nyx AI - 24/7 Market Intelligence
+"""
+        
+        try:
+            self.telegram.send_message(message)
+            logger.info("Telegram notification sent")
+        except Exception as e:
+            logger.error(f"Failed to send Telegram notification: {e}")
+    
+    def monitor_positions(self):
+        """Monitor open positions with professional management"""
+        
+        # NEW: Check for emergency stop file
+        if self.check_stop_file():
+            self.stop()
+            return
+            
+        # NEW: Check running flag
+        if not self.running:
+            logger.info("Bot stopped - monitoring paused")
+            return
+            
+        positions = mt5.positions_get()
+        
+        if positions:
+            logger.info(f"Open positions: {len(positions)}")
+            
+            # Get current price for all positions
+            current_prices = {}
+            for pos in positions:
+                if pos.symbol not in current_prices:
+                    tick = mt5.symbol_info_tick(pos.symbol)
+                    if tick:
+                        current_prices[pos.symbol] = tick.ask if pos.type == 0 else tick.bid
+            
+            # Check each position for professional management
+            for pos in positions:
+                current_price = current_prices.get(pos.symbol, pos.price_current)
+                atr_value = self.risk_manager.get_atr_value(pos.symbol)
+                spread = 0.0
+                tick = mt5.symbol_info_tick(pos.symbol)
+                if tick:
+                    spread = tick.ask - tick.bid
+                
+                # 1. Check partial TP
+                if self.trade_manager.check_partial_tp(pos.ticket, current_price):
+                    if ENABLE_ADVANCED_LOGGING and LOG_PARTIAL_TP_EVENTS:
+                        logger.info(f"PARTIAL TP EXECUTED: {pos.symbol} ticket {pos.ticket}")
+                
+                # 2. Check break-even
+                if self.trade_manager.check_break_even(pos.ticket, current_price, spread):
+                    if ENABLE_ADVANCED_LOGGING and LOG_BREAK_EVEN_MOVES:
+                        logger.info(f"BREAK-EVEN MOVED: {pos.symbol} ticket {pos.ticket}")
+                
+                # 3. Check trailing stop
+                if atr_value and self.trade_manager.check_trailing_stop(pos.ticket, current_price, atr_value):
+                    if ENABLE_ADVANCED_LOGGING and LOG_TRAILING_UPDATES:
+                        logger.info(f"TRAILING STOP UPDATED: {pos.symbol} ticket {pos.ticket}")
+                
+                # 4. Check for force close conditions
+                if self.trade_manager.should_force_close(pos.ticket, current_price):
+                    result = close_position(pos)
+                    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                        logger.info(f"FORCE CLOSED: {pos.symbol} ticket {pos.ticket}")
+                        self.trade_manager.cleanup_trade(pos.ticket)
+                        if ENABLE_ADVANCED_LOGGING and LOG_EXIT_REASONS:
+                            logger.info(f"EXIT REASON: Force close conditions met")
+                    continue
+                
+                # 5. Check for old positions and close them
+                current_time = time.time()
+                position_age_seconds = current_time - pos.time
+                position_age_minutes = position_age_seconds / 60
+                
+                if position_age_minutes > 30:
+                    print(f"Closing old position {pos.ticket} (age: {position_age_minutes:.1f} minutes)")
+                    result = close_position(pos)
+                    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                        print(f"Successfully closed old position {pos.ticket}")
+                        self.trade_manager.cleanup_trade(pos.ticket)
+                    else:
+                        print(f"Failed to close old position {pos.ticket}: {result.retcode if result else 'No result'}")
+                else:
+                    profit = pos.profit
+                    logger.info(f"   Position {pos.ticket}: {pos.type} {pos.volume} lots, P&L: ${profit:+.2f}")
+                    
+                    # Send notification if profit is significant
+                    if abs(profit) > 10:
+                        self._send_position_update(pos)
+        else:
+            logger.info("No open positions")
+    
+    def check_open_trades(self):
+        """Check all open trades and return structured list"""
+        try:
+            positions = mt5.positions_get()
+            if not positions:
+                return []
+            
+            open_trades = []
+            current_time = time.time()
+            
+            for pos in positions:
+                trade_data = {
+                    'ticket': pos.ticket,
+                    'symbol': pos.symbol,
+                    'type': 'BUY' if pos.type == 0 else 'SELL',
+                    'volume': pos.volume,
+                    'open_price': pos.price_open,
+                    'profit': pos.profit,
+                    'open_time': pos.time,
+                    'duration_minutes': (current_time - pos.time) / 60,
+                    'current_price': pos.price_current,
+                    'sl': pos.sl,
+                    'tp': pos.tp
+                }
+                open_trades.append(trade_data)
+                
+            logger.info(f"Found {len(open_trades)} open trades")
+            return open_trades
+            
+        except Exception as e:
+            logger.error(f"Error checking open trades: {e}")
+            return []
+    
+    def close_trade_by_ticket(self, ticket):
+        """Close a specific trade by ticket using professional method"""
+        try:
+            position = mt5.positions_get(ticket=ticket)
+            if not position:
+                logger.error(f"Position {ticket} not found")
+                return False
+                
+            position = position[0]
+            
+            # Use professional closing method
+            success, result = close_trade_professional(position)
+            
+            if success:
+                logger.info(f"Successfully closed trade {ticket}")
+                if self.telegram:
+                    self.telegram.send_message(f"✅ Trade {ticket} closed - P&L: ${position.profit:+.2f}")
+                return True
+            else:
+                logger.error(f"Failed to close trade {ticket}")
+                if self.telegram:
+                    self.telegram.send_message(f"❌ Failed to close trade {ticket}")
+                return False
+            
+        except Exception as e:
+            logger.error(f"Error closing trade {ticket}: {e}")
+            return False
+    
+    def manage_trade_lifecycle(self):
+        """Manage trade lifecycle with smarter logic"""
+        try:
+            open_trades = self.check_open_trades()
+            
+            for trade in open_trades:
+                ticket = trade['ticket']
+                symbol = trade['symbol']
+                profit = trade['profit']
+                duration = trade['duration_minutes']
+                
+                # Condition 1: Close after 45 minutes (increased from 30)
+                if duration > 45:
+                    logger.info(f"Closing trade {ticket} due to timeout ({duration:.1f} min)")
+                    self.close_trade_by_ticket(ticket)
+                    continue
+                
+                # Condition 2: Close if profit > $5 (increased from $2)
+                if profit > 5.0:
+                    logger.info(f"Closing trade {ticket} due to profit target (+${profit:.2f})")
+                    self.close_trade_by_ticket(ticket)
+                    continue
+                
+                # Condition 3: Close if loss < -$5 (increased from -$2)
+                if profit < -5.0:
+                    logger.info(f"Closing trade {ticket} due to stop loss (-${profit:.2f})")
+                    self.close_trade_by_ticket(ticket)
+                    continue
+                    
+                # Condition 4: Smart partial TP at 50% of target
+                if abs(profit) > 1.0:  # Only if in reasonable profit
+                    tp_distance = abs(trade['tp'] - trade['open_price'])
+                    current_distance = abs(trade['current_price'] - trade['open_price'])
+                    
+                    if current_distance > tp_distance * 0.5:  # Reached 50% of TP
+                        logger.info(f"Trade {ticket} at 50% TP target, consider partial close")
+                        # Partial close logic can be added here
+                    
+        except Exception as e:
+            logger.error(f"Error in trade lifecycle management: {e}")
+    
+    def _send_position_update(self, position):
+        """Send position update notification"""
+        if not self.telegram:
+            return
+        
+        message = f"""
+POSITION UPDATE
+
+Type: {'BUY' if position.type == 0 else 'SELL'}
+Volume: {position.volume:.2f} lots
+P&L: ${position.profit:+.2f}
+Entry: {position.price_open:.5f}
+Current: {position.price_current:.5f}
+
+Time: {datetime.now().strftime('%H:%M:%S')}
+"""
+        
+        try:
+            self.telegram.send_message(message)
+        except Exception as e:
+            logger.error(f"Failed to send position update: {e}")
+    
+    def emergency_close_all(self):
+        """Emergency close all positions with improved error handling"""
+        print("EMERGENCY CLOSE ALL POSITIONS!")
+        
+        try:
+            # Get ALL open positions
+            positions = mt5.positions_get()
+            if not positions:
+                print("No open positions to close")
+                return 0
+            
+            closed = 0
+            failed = 0
+            
+            for position in positions:
+                print(f"Closing {position.symbol} position {position.ticket} (P&L: ${position.profit:+.2f})")
+                
+                # Use our improved close function
+                if self.close_trade_by_ticket(position.ticket):
+                    closed += 1
+                else:
+                    failed += 1
+            
+            print(f"Emergency close completed: {closed}/{len(positions)} positions closed, {failed} failed")
+            
+            # Send Telegram notification
+            if self.telegram:
+                self.telegram.send_message(
+                    f"EMERGENCY CLOSE COMPLETED\n\n"
+                    f"Closed: {closed}/{len(positions)} positions\n"
+                    f"Failed: {failed} positions\n"
+                    f"Nyx AI: Safety protocol activated"
+                )
+            
+            return closed
+            
+        except Exception as e:
+            logger.error(f"Emergency close error: {e}")
+            return 0

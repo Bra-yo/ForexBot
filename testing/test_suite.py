@@ -542,36 +542,36 @@ def run_comprehensive_tests():
     
     # Generate summary
     print("\n" + "=" * 60)
-    print("📊 TEST SUMMARY")
+    print("TEST SUMMARY")
     print("=" * 60)
-    print(f"✅ Tests run: {result.testsRun}")
-    print(f"❌ Failures: {len(result.failures)}")
-    print(f"🚫 Errors: {len(result.errors)}")
-    print(f"⏭️ Skipped: {len(result.skipped)}")
+    print(f"Tests run: {result.testsRun}")
+    print(f"Failures: {len(result.failures)}")
+    print(f"Errors: {len(result.errors)}")
+    print(f"Skipped: {len(result.skipped)}")
     
     success_rate = (result.testsRun - len(result.failures) - len(result.errors)) / result.testsRun * 100
-    print(f"📈 Success Rate: {success_rate:.1f}%")
+    print(f"Success Rate: {success_rate:.1f}%")
     
     if result.failures:
-        print("\n❌ FAILURES:")
+        print("\nFAILURES:")
         for test, traceback in result.failures:
             print(f"  - {test}: {traceback.split('AssertionError:')[-1].strip()}")
     
     if result.errors:
-        print("\n🚫 ERRORS:")
+        print("\nERRORS:")
         for test, traceback in result.errors:
             print(f"  - {test}: {traceback.split('Exception:')[-1].strip()}")
     
     print("\n" + "=" * 60)
     
     if success_rate >= 90:
-        print("🎉 EXCELLENT! System is ready for production!")
+        print("EXCELLENT! System is ready for production!")
     elif success_rate >= 75:
-        print("✅ GOOD! System mostly functional, minor issues to address.")
+        print("GOOD! System mostly functional, minor issues to address.")
     elif success_rate >= 50:
-        print("⚠️ FAIR! System needs attention before production use.")
+        print("FAIR! System has some issues that need attention.")
     else:
-        print("🚨 POOR! Significant issues found, requires major fixes.")
+        print("POOR! System needs significant improvements.")
     
     print("=" * 60)
     
