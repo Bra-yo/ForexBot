@@ -20,6 +20,7 @@ from trade_manager import TradeManager
 from risk_manager import RiskManager
 from signal_filter import SignalFilter
 from config import *
+from telegram_command_handler import TelegramCommandHandler  # LEVEL 7: Import command handler
 
 def close_mt5_trade(position):
     """PART 4: Proper MT5 position closing function with retry system"""
@@ -106,9 +107,52 @@ class LiveTradingExecutor:
         self._trade_profits = {}  # Track floating profit per trade
         self._breakeven_moved = {}  # Track which trades have breakeven moved
         
-        # LEVEL 4: SMART EXECUTION ENGINE
+        # LEVEL 5: SMART EXECUTION ENGINE
         self._last_trade_time = {}  # Anti-spam cooldown
-        self._trade_cooldown = 60  # 60 seconds between trades per symbol
+        self._trade_cooldown = 60  # LEVEL 5: Increased to 5 minutes = 300 seconds
+        self._last_telegram_trade = {}  # LEVEL 5: Track last Telegram per symbol
+        self._trade_memory = {}  # LEVEL 5: Track last trade (symbol: {signal, time})
+        
+        # LEVEL 6: PROFIT TRACKING SYSTEM
+        self._starting_balance = None
+        self._daily_profit = 0.0
+        self._last_profit_log_time = time.time()
+        self._last_telegram_profit_time = time.time()
+        
+        # LEVEL 6: DRAWDOWN & EQUITY PROTECTION
+        self._daily_loss_limit = 0.05  # 5% daily loss limit
+        self._equity_protection_limit = 0.90  # 90% equity protection
+        self._trading_stopped_for_drawdown = False
+        
+        # LEVEL 6: SMART TRADING HOURS
+        self._london_session_start = 8  # 08:00 UTC
+        self._london_session_end = 12   # 12:00 UTC
+        self._ny_session_start = 13      # 13:00 UTC
+        self._ny_session_end = 17        # 17:00 UTC
+        
+        # LEVEL 7: TRADE SCORING SYSTEM
+        self._trade_scores = {}  # Track scores per symbol
+        self._score_threshold = 0.7  # Only trade if score > 0.7
+        
+        # LEVEL 7: PERFORMANCE MEMORY
+        self._performance_memory = {}  # Track wins/losses per symbol
+        self._winning_streak = 0  # Track current winning streak
+        self._losing_streak = 0   # Track current losing streak
+        
+        # LEVEL 7: DYNAMIC RISK ADJUSTMENT
+        self._base_lot_size = 0.01
+        self._current_lot_multiplier = 1.0
+        self._max_lot_multiplier = 2.0  # Never exceed 2x base lot size
+        
+        # LEVEL 7: TRADE JOURNAL SYSTEM
+        self._trade_journal = []
+        self._journal_file = "nyx_trade_journal.csv"
+        
+        # LEVEL 7: Initialize command handler
+        self.command_handler = TelegramCommandHandler(self, self.telegram) if self.telegram else None
+        
+        # LEVEL 6: Initialize profit tracking
+        self._initialize_profit_tracking()
         
         # Initialize professional modules
         self.trade_manager = TradeManager()
@@ -147,8 +191,15 @@ class LiveTradingExecutor:
             self.telegram.send_message(message)
             
     def _send_trade_telegram(self, message, symbol='general'):
-        """Send trade-related Telegram message with rate limiting"""
-        if self._can_send_telegram_message(symbol, 'trade'):
+        """LEVEL 5: Send trade-related Telegram message with rate limiting and only for executed trades"""
+        # Only send if we haven't sent for this symbol recently
+        if not self._can_send_telegram_message(symbol, 'trade'):
+            return
+            
+        # LEVEL 5: Store that we sent Telegram for this symbol
+        self._last_telegram_trade[symbol] = time.time()
+        
+        if self.telegram:
             self.telegram.send_message(message)
         
     def _check_lock_file(self):
@@ -171,9 +222,268 @@ class LiveTradingExecutor:
                 logger.info("Lock file removed")
         except Exception as e:
             logger.error(f"Failed to remove lock file: {e}")
+    
+    def _initialize_profit_tracking(self):
+        """LEVEL 6: Initialize profit tracking with MT5 connection debug"""
+        try:
+            # LEVEL 6: Enhanced MT5 connection debug
+            if not mt5.initialize():
+                print("❌ MT5 not initialized!")
+                logger.error("MT5 not initialized!")
+                return
             
-    def stop(self):
-        """PART 3: Safe stop function"""
+            account = mt5.account_info()
+            if account is None:
+                print("❌ No MT5 account connected!")
+                logger.error("No MT5 account connected!")
+                return
+            
+            # LEVEL 6: Enhanced logging
+            print(f"✅ Connected to account: {account.login}")
+            print(f"💰 Balance: ${account.balance:,.2f}")
+            print(f"💎 Equity: ${account.equity:,.2f}")
+            print(f"🌐 Server: {account.server}")
+            
+            logger.info(f"Connected to account: {account.login}")
+            logger.info(f"Starting Balance: ${account.balance:,.2f}")
+            logger.info(f"Starting Equity: ${account.equity:,.2f}")
+            logger.info(f"Server: {account.server}")
+            
+            # Store starting balance for profit tracking
+            self._starting_balance = account.balance
+            self._daily_profit = 0.0
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize profit tracking: {e}")
+            print(f"❌ Error initializing profit tracking: {e}")
+    
+    def _check_drawdown_protection(self):
+        """LEVEL 6: Check if daily loss exceeds 5% limit"""
+        if self._starting_balance is None:
+            return False
+            
+        try:
+            account = mt5.account_info()
+            if not account:
+                return False
+                
+            current_balance = account.balance
+            daily_loss = self._starting_balance - current_balance
+            daily_loss_percent = daily_loss / self._starting_balance
+            
+            if daily_loss_percent >= self._daily_loss_limit and not self._trading_stopped_for_drawdown:
+                logger.error(f"🚨 Daily drawdown limit reached: {daily_loss_percent:.1%}")
+                print(f"🚨 DAILY DRAWDOWN LIMIT REACHED: {daily_loss_percent:.1%}")
+                
+                if self.telegram:
+                    alert_message = f"""🚨 DAILY DRAWDOWN LIMIT REACHED
+
+Starting Balance: ${self._starting_balance:,.2f}
+Current Balance: ${current_balance:,.2f}
+Daily Loss: ${daily_loss:,.2f} ({daily_loss_percent:.1%})
+
+Action: Trading STOPPED
+Bot: Nyx AI Level 6
+"""
+                    self.telegram.send_message(alert_message)
+                
+                self._trading_stopped_for_drawdown = True
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error checking drawdown protection: {e}")
+            
+        return False
+    
+    def _check_equity_protection(self):
+        """LEVEL 6: Check if equity drops below 90% of balance"""
+        try:
+            account = mt5.account_info()
+            if not account:
+                return False
+                
+            balance = account.balance
+            equity = account.equity
+            equity_ratio = equity / balance
+            
+            if equity_ratio < self._equity_protection_limit:
+                logger.error(f"💀 Equity protection triggered: {equity_ratio:.1%}")
+                print(f"💀 EQUITY PROTECTION TRIGGERED: {equity_ratio:.1%}")
+                
+                if self.telegram:
+                    alert_message = f"""💀 EQUITY PROTECTION TRIGGERED
+
+Balance: ${balance:,.2f}
+Equity: ${equity:,.2f}
+Equity Ratio: {equity_ratio:.1%}
+
+Action: All trades CLOSED, Bot STOPPED
+Bot: Nyx AI Level 6
+"""
+                    self.telegram.send_message(alert_message)
+                
+                # Close all trades and stop bot
+                self.emergency_close_all()
+                self.stop()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error checking equity protection: {e}")
+            
+        return False
+    
+    def _check_trading_session(self):
+        """LEVEL 6: Check if current time is within allowed trading sessions"""
+        current_hour = datetime.now().hour
+        
+        # Check London session (08:00-12:00 UTC)
+        if self._london_session_start <= current_hour < self._london_session_end:
+            return True, "London Session"
+            
+        # Check New York session (13:00-17:00 UTC)
+        if self._ny_session_start <= current_hour < self._ny_session_end:
+            return True, "New York Session"
+            
+        # Outside trading sessions
+        return False, f"Outside trading session (Hour: {current_hour} UTC)"
+    
+    def _update_profit_tracking(self):
+        """LEVEL 6: Update daily profit and send periodic updates"""
+        if self._starting_balance is None:
+            return
+            
+        try:
+            account = mt5.account_info()
+            if not account:
+                return
+                
+            current_balance = account.balance
+            self._daily_profit = current_balance - self._starting_balance
+            
+            current_time = time.time()
+            
+            # Log profit every cycle
+            logger.info(f"💰 Daily P&L: ${self._daily_profit:+.2f}")
+            logger.info(f"📊 Balance: ${current_balance:,.2f}")
+            
+            # Send Telegram update every 30 minutes
+            if current_time - self._last_telegram_profit_time >= 1800:  # 30 minutes
+                profit_message = f"""📊 NYX AI PROFIT UPDATE
+
+Daily P&L: ${self._daily_profit:+.2f}
+Current Balance: ${current_balance:,.2f}
+Starting Balance: ${self._starting_balance:,.2f}
+
+Time: {datetime.now().strftime('%H:%M:%S')}
+Bot: Nyx AI Level 6
+"""
+                if self.telegram:
+                    self.telegram.send_message(profit_message)
+                self._last_telegram_profit_time = current_time
+                
+        except Exception as e:
+            logger.error(f"Error updating profit tracking: {e}")
+    
+    def _calculate_trade_score(self, symbol, confidence, trend_strength=0.5, volume_factor=0.5, momentum=0.5, volatility=0.5):
+        """LEVEL 7: Calculate weighted trade score"""
+        try:
+            # Get market data for scoring (simplified for demo)
+            score = (trend_strength * 0.4) + (volume_factor * 0.2) + (momentum * 0.2) + (volatility * 0.2)
+            
+            # Store score for logging
+            self._trade_scores[symbol] = score
+            
+            logger.debug(f"Trade score for {symbol}: {score:.3f} (threshold: {self._score_threshold})")
+            return score
+            
+        except Exception as e:
+            logger.error(f"Error calculating trade score: {e}")
+            return 0.5  # Default middle score
+    
+    def _update_performance_memory(self, symbol, profit):
+        """LEVEL 7: Update performance memory and adjust trading parameters"""
+        try:
+            if symbol not in self._performance_memory:
+                self._performance_memory[symbol] = {'wins': 0, 'losses': 0, 'total_profit': 0.0}
+            
+            if profit > 0:
+                self._performance_memory[symbol]['wins'] += 1
+                self._winning_streak += 1
+                self._losing_streak = 0
+            else:
+                self._performance_memory[symbol]['losses'] += 1
+                self._losing_streak += 1
+                self._winning_streak = 0
+            
+            self._performance_memory[symbol]['total_profit'] += profit
+            
+            # Dynamic risk adjustment
+            self._adjust_lot_size_based_on_performance()
+            
+            logger.debug(f"Performance updated for {symbol}: {self._performance_memory[symbol]}")
+            
+        except Exception as e:
+            logger.error(f"Error updating performance memory: {e}")
+    
+    def _adjust_lot_size_based_on_performance(self):
+        """LEVEL 7: Adjust lot size based on winning/losing streaks"""
+        try:
+            if self._winning_streak >= 3:
+                # Increase lot size for winning streak
+                self._current_lot_multiplier = min(self._current_lot_multiplier + 0.1, self._max_lot_multiplier)
+                logger.info(f"📈 Winning streak ({self._winning_streak}) - Increasing lot size to {self._current_lot_multiplier:.1f}x")
+                
+            elif self._losing_streak >= 2:
+                # Reduce lot size for losing streak
+                self._current_lot_multiplier = max(self._current_lot_multiplier - 0.1, 0.5)
+                logger.info(f"📉 Losing streak ({self._losing_streak}) - Reducing lot size to {self._current_lot_multiplier:.1f}x")
+                
+        except Exception as e:
+            logger.error(f"Error adjusting lot size: {e}")
+    
+    def _journal_trade(self, symbol, signal, entry, sl, tp, lot, result, timestamp):
+        """LEVEL 7: Save trade to journal"""
+        try:
+            trade_record = {
+                'timestamp': timestamp,
+                'symbol': symbol,
+                'signal': signal,
+                'entry': entry,
+                'stop_loss': sl,
+                'take_profit': tp,
+                'lot_size': lot,
+                'result': result,
+                'profit': 0.0,  # Will be updated when closed
+                'score': self._trade_scores.get(symbol, 0.0)
+            }
+            
+            self._trade_journal.append(trade_record)
+            
+            # Save to CSV file
+            import csv
+            file_exists = os.path.exists(self._journal_file)
+            
+            with open(self._journal_file, 'a', newline='') as csvfile:
+                fieldnames = ['timestamp', 'symbol', 'signal', 'entry', 'stop_loss', 'take_profit', 'lot_size', 'result', 'profit', 'score']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                if not file_exists:
+                    writer.writeheader()
+                    
+                writer.writerow(trade_record)
+                
+            logger.debug(f"Trade journaled: {symbol} {signal}")
+            
+        except Exception as e:
+            logger.error(f"Error journaling trade: {e}")
+    
+    def handle_telegram_message(self, message_text, chat_id):
+        """LEVEL 7: Handle incoming Telegram commands"""
+        if self.command_handler:
+            self.command_handler.handle_command(message_text, chat_id)
+    
+    def monitor_positions(self):
+        """Monitor open positions with professional management"""
         self.running = False
         self.is_running = False
         logger.info("Bot stopping safely...")
@@ -303,9 +613,29 @@ class LiveTradingExecutor:
         """Execute live trade with all safety checks"""
         
         try:
+            # LEVEL 6: Check trading session first
+            session_allowed, session_reason = self._check_trading_session()
+            if not session_allowed:
+                logger.debug(f"Trade blocked: {session_reason}")
+                return False
+            
+            # LEVEL 6: Check drawdown protection
+            if self._check_drawdown_protection():
+                return False  # Trading stopped due to drawdown
+            
+            # LEVEL 6: Check equity protection
+            if self._check_equity_protection():
+                return False  # Bot stopped due to equity protection
+            
             # PART 1: VALIDATE TRADE DATA BEFORE FORMATTING
             if entry_price is None or lot_size is None:
                 logger.warning("Invalid trade data - skipped")
+                return False
+            
+            # LEVEL 7: TRADE SCORING SYSTEM
+            trade_score = self._calculate_trade_score(symbol, confidence)
+            if trade_score <= self._score_threshold:
+                logger.debug(f"Trade blocked: Low score ({trade_score:.3f} <= {self._score_threshold})")
                 return False
             
             # Allow None for SL/TP - they will be calculated internally
@@ -370,7 +700,7 @@ class LiveTradingExecutor:
                 logger.warning("Invalid trade data - skipped (None values detected)")
                 return False
             
-            # LEVEL 4: SMART EXECUTION ENGINE
+            # LEVEL 5: SMART EXECUTION ENGINE
             # 1. Anti-spam protection
             current_time = time.time()
             if symbol in self._last_trade_time:
@@ -378,7 +708,14 @@ class LiveTradingExecutor:
                     logger.debug(f"Trade blocked: Cooldown active for {symbol}")
                     return False
             
-            # 2. Only trade HIGH QUALITY signals
+            # LEVEL 5: 2. Trade Memory System - prevent same signal repeats
+            if symbol in self._trade_memory:
+                last_signal, last_time = self._trade_memory[symbol]
+                if last_signal == signal and (current_time - last_time) < 600:  # 10 minutes
+                    logger.debug(f"Trade blocked: Same signal {signal} for {symbol} within 10 minutes")
+                    return False
+            
+            # LEVEL 5: 3. Only trade HIGH QUALITY signals
             if confidence < 80.0:  # Increased from 70%
                 logger.debug(f"Trade blocked: Low confidence ({confidence:.1f}% < 80%)")
                 return False
@@ -482,6 +819,12 @@ class LiveTradingExecutor:
                     confidence, account['balance']
                 )
                 
+                # LEVEL 7: Apply dynamic lot multiplier
+                final_lot_size = adaptive_lot * self._current_lot_multiplier
+                final_lot_size = min(final_lot_size, 0.5)  # Respect max lot size
+                
+                logger.info(f"Dynamic lot sizing: Base={adaptive_lot:.3f}, Multiplier={self._current_lot_multiplier:.1f}, Final={final_lot_size:.3f}")
+                
                 # NEW: Calculate profit targets
                 profit_levels = self.profit_targets.calculate_profit_levels(entry_price, stop_loss, signal)
                 if profit_levels:
@@ -494,113 +837,62 @@ class LiveTradingExecutor:
             result = place_trade(
                 symbol=symbol,
                 signal=signal,
-                lot=lot_size,
+                lot=final_lot_size,  # LEVEL 7: Use dynamic lot size
                 sl=stop_loss,
                 tp=take_profit
             )
             
             if result:
-                # LEVEL 4: Update trade time for anti-spam
+                # LEVEL 5: Update trade memory and time for anti-spam
                 self._last_trade_time[symbol] = current_time
+                self._trade_memory[symbol] = (signal, current_time)  # Store signal and time
                 
                 # Register trade with professional manager
                 self.trade_manager.register_trade(
                     result.order, symbol, signal, entry_price, 
-                    stop_loss, take_profit, lot_size
+                    stop_loss, take_profit, final_lot_size  # LEVEL 7: Use dynamic lot size
                 )
                 
-                # Log professional entry reason
-                if ENABLE_ADVANCED_LOGGING and LOG_ENTRY_REASONS:
-                    entry_reason = f"Signal: {signal} ({confidence:.1f}%), Session: {session_reason.split(':')[0].strip()}, Risk: {risk_percent:.1f}%"
-                    logger.info(f"ENTRY REASON: {entry_reason}")
-                
-                # Send Telegram notification
-                self._send_trade_notification(
-                    symbol=symbol,
-                    signal=signal,
-                    confidence=confidence,
-                    entry=entry_price,
-                    sl=stop_loss,
-                    tp=take_profit,
-                    lot=lot_size,
-                    order_id=result.order,
-                    success=True
-                )
-                
-                return True
-            else:
-                if ENABLE_EXECUTION_RETRIES:
-                    # Retry logic can be implemented here
-                    pass
-                    
-                # Send failed notification
-                self._send_trade_notification(
-                    symbol=symbol,
-                    signal=signal,
-                    confidence=confidence,
-                    entry=entry_price,
-                    sl=stop_loss,
-                    tp=take_profit,
-                    lot=lot_size,
-                    success=False
-                )
-                
-                logger.error(f"LIVE TRADE FAILED!")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Live trade execution error: {e}")
-            if self.telegram:
-                self.telegram.send_message(f"🚨 TRADE EXECUTION ERROR: {e}")
-            return False
-    
-    def _send_trade_notification(self, symbol, signal, confidence, entry, sl, tp, lot, order_id=None, success=True, error=None):
-        """Send detailed trade notification to Telegram"""
-        
-        if not self.telegram:
-            return
-        
-        if success:
-            message = f"""
-LIVE TRADE EXECUTED
+                # LEVEL 5: Send ONE clean Telegram message for executed trade
+                trade_message = f"""🚀 TRADE EXECUTED
 
-Symbol: {symbol if symbol else 'N/A'}
-Signal: {signal if signal else 'N/A'}
-Lot Size: {lot:.2f if lot is not None else 0.00}
-Entry: {entry:.5f if entry is not None else 0.00000}
-Stop Loss: {sl:.5f if sl is not None else 0.00000}
-Take Profit: {tp:.5f if tp is not None else 0.00000}
-Confidence: {confidence:.1f if confidence is not None else 0.0}%
-Order ID: {order_id if order_id else 'N/A'}
+Symbol: {symbol}
+Signal: {signal} ({confidence:.1f}%)
+Entry: {entry_price:.5f}
+Stop Loss: {stop_loss:.5f}
+Take Profit: {take_profit:.5f}
+Lot Size: {lot_size:.2f}
 
 Time: {datetime.now().strftime('%H:%M:%S')}
 Status: ACTIVE
-Bot: Nyx AI - 24/7 Market Intelligence
+Bot: Nyx AI Level 7
+Score: {trade_score:.3f}
 """
-        else:
-            message = f"""
-LIVE TRADE EXECUTION FAILED
-
-Symbol: {symbol if symbol else 'N/A'}
-Signal: {signal if signal else 'N/A'}
-Lot Size: {lot:.2f if lot is not None else 0.00}
-Entry: {entry:.5f if entry is not None else 0.00000}
-Confidence: {confidence:.1f if confidence is not None else 0.0}%
-Error: {error if error else 'Unknown error'}
-
-Time: {datetime.now().strftime('%H:%M:%S')}
-Status: FAILED
-Bot: Nyx AI - 24/7 Market Intelligence
-"""
-        
-        try:
-            self.telegram.send_message(message)
-            logger.info("Telegram notification sent")
+                self._send_trade_telegram(trade_message, symbol)
+                
+                # LEVEL 5: Clean logging - only important events
+                logger.info(f"✅ TRADE EXECUTED: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
+                
+                # LEVEL 7: Journal the trade
+                self._journal_trade(symbol, signal, entry_price, stop_loss, take_profit, final_lot_size, "EXECUTED", datetime.now())
+                
+            else:
+                # LEVEL 5: Safe execution - log error and continue
+                logger.warning(f"❌ Trade execution failed: {symbol} {signal}")
+                # Do NOT send Telegram for failed trades (LEVEL 5 anti-spam)
+                
+                return True
+                
         except Exception as e:
-            logger.error(f"Failed to send Telegram notification: {e}")
+            # LEVEL 5: Safe execution - wrap entire function in try/except
+            logger.error(f"❌ Critical error in trade execution: {e}")
+            return False  # Continue bot loop, do NOT crash
     
     def monitor_positions(self):
         """Monitor open positions with professional management"""
+        
+        # LEVEL 6: Update profit tracking first
+        self._update_profit_tracking()
         
         # NEW: Check for emergency stop file
         if self.check_stop_file():

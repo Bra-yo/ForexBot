@@ -216,28 +216,37 @@ class MultiPairLiveBot:
                     f"Control: STOP NYX to stop via Telegram"
                 )
             
-            # NEW: Main trading loop with running flag
+            # LEVEL 6: Auto-restart protection - wrap main loop in try/except
             while self.is_running and self.live_executor.running:
-                cycle_start = time.time()
-                
-                # NEW: Check emergency stop file
-                if self.controller.check_emergency_stop():
-                    logger.warning("Emergency stop triggered - breaking loop")
-                    break
-                
-                # Run multi-pair analysis
-                self.run_analysis_cycle()
-                
-                # Manage trade lifecycle (NEW)
-                if self.live_executor:
-                    self.live_executor.manage_trade_lifecycle()
-                
-                # Wait for next cycle
-                elapsed = time.time() - cycle_start
-                wait_time = max(0, cycle_seconds - elapsed)
-                
-                if wait_time > 0:
-                    time.sleep(wait_time)
+                try:
+                    cycle_start = time.time()
+                    
+                    # NEW: Check emergency stop file
+                    if self.controller.check_emergency_stop():
+                        logger.warning("Emergency stop triggered - breaking loop")
+                        break
+                    
+                    # Run multi-pair analysis
+                    self.run_analysis_cycle()
+                    
+                    # Manage trade lifecycle (NEW)
+                    if self.live_executor:
+                        self.live_executor.manage_trade_lifecycle()
+                    
+                    # Wait for next cycle
+                    elapsed = time.time() - cycle_start
+                    wait_time = max(0, cycle_seconds - elapsed)
+                    
+                    if wait_time > 0:
+                        time.sleep(wait_time)
+                        
+                except Exception as e:
+                    # LEVEL 6: Auto-restart protection
+                    logger.error(f"❌ Main loop error: {e}")
+                    print(f"❌ ERROR in main loop: {e}")
+                    print("🔄 Restarting in 10 seconds...")
+                    time.sleep(10)  # Wait 10 seconds before restart
+                    continue  # Restart loop automatically
         
         except KeyboardInterrupt:
             logger.info("Trading stopped by user")
