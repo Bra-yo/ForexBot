@@ -33,7 +33,7 @@ TRAILING_DISABLE_NEAR_TP = 0.2  # Disable within 20% of TP
 # ==========================================
 # SESSION FILTER SETTINGS
 # ==========================================
-ENABLE_SESSION_FILTER = True
+ENABLE_SESSION_FILTER = True  # 🔧 RE-ENABLED FOR VPS PRODUCTION
 LONDON_SESSION_START = 8  # 08:00 UTC
 LONDON_SESSION_END = 17  # 17:00 UTC
 NEW_YORK_SESSION_START = 13  # 13:00 UTC

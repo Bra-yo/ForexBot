@@ -30,14 +30,14 @@ def manage_open_trades():
     if positions is None:
         return
     
+    now = datetime.utcnow()  # Use UTC for consistency
+    
     for pos in positions:
         open_time = datetime.fromtimestamp(pos.time)
-        now = datetime.now()
-        
         duration = (now - open_time).total_seconds() / 60
         
-        if duration > MAX_TRADE_DURATION_MINUTES:
-            logger.info(f"⏱ Closing {pos.symbol} — exceeded {MAX_TRADE_DURATION_MINUTES} mins")
+        if duration > MAX_TRADE_DURATION_MINUTES:  # 🔥 CHANGE TO 10 MINUTES
+            logger.info(f"⏰ Closing expired trade: {pos.symbol} (open for {duration:.1f} mins)")
             
             close_request = {
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -46,9 +46,11 @@ def manage_open_trades():
                 "type": mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY,
                 "position": pos.ticket,
                 "price": mt5.symbol_info_tick(pos.symbol).bid,
-                "deviation": 10,
+                "deviation": 20,
                 "magic": 123456,
                 "comment": "Timeout close",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
             }
             
             result = mt5.order_send(close_request)

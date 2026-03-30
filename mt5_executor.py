@@ -114,12 +114,18 @@ def check_safety_filters(self, symbol, lot, signal, spread_pips, confidence=None
     current_time = datetime.now()
     hour = current_time.hour
     
+    # 🔧 RE-ENABLED FOR VPS PRODUCTION
     if not (TRADING_HOURS_START <= hour < TRADING_HOURS_END):
         return False, f"Outside trading hours ({hour}:00 not in {TRADING_HOURS_START}-{TRADING_HOURS_END})"
     
+    print(f"✅ Market hours check passed")
+    
     # 🛑 5. Weekend Protection
+    # 🔧 RE-ENABLED FOR VPS PRODUCTION
     if current_time.weekday() >= 5:  # Saturday or Sunday
         return False, "Weekend protection active"
+    
+    print(f"✅ Weekend protection passed")
     
     # 🛑 6. Position Stacking Prevention
     symbol_positions = [pos for pos in positions if pos.symbol == symbol]

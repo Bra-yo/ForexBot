@@ -131,10 +131,10 @@ class LiveTradingExecutor:
         self._ny_session_end = 17        # 17:00 UTC
         
         # LEVEL 7: TEMPORARY - Extend trading hours for testing
-        self._london_session_start = 7   # 07:00 UTC
-        self._london_session_end = 18    # 18:00 UTC (extended for testing)
-        self._ny_session_start = 13      # 13:00 UTC
-        self._ny_session_end = 20        # 20:00 UTC (extended for testing)
+        self._london_session_start = 0   # 00:00 UTC (midnight)
+        self._london_session_end = 23    # 23:00 UTC (11 PM - 24/7 testing)
+        self._ny_session_start = 0       # 00:00 UTC (midnight)
+        self._ny_session_end = 23        # 23:00 UTC (11 PM - 24/7 testing)
         
         # LEVEL 7: TRADE SCORING SYSTEM
         self._trade_scores = {}  # Track scores per symbol
@@ -635,7 +635,7 @@ Bot: Nyx AI Level 6
             if not session_allowed:
                 logger.debug(f"Trade blocked: {session_reason}")
                 return False
-            
+        
             logger.info(f"✅ Session check passed for {symbol}")
             
             # LEVEL 6: Check drawdown protection
@@ -676,14 +676,22 @@ Bot: Nyx AI Level 6
             
             # Calculate SL/TP if not provided
             if stop_loss is None or take_profit is None:
-                # 🔧 FIX 2: FORCE MINIMUM STOP DISTANCE
+                # 🔧 FIX 2: IMPROVED INVALID STOPS FIX
                 symbol_info = mt5.symbol_info(symbol)
                 if symbol_info is None:
                     logger.error(f"Cannot get symbol info for {symbol}")
                     return False
                 
                 point = symbol_info.point
-                min_stop = symbol_info.stop_level * point
+                # 🔧 CRITICAL FIX: Use correct attribute name
+                if hasattr(symbol_info, 'stop_level') and symbol_info.stop_level > 0:
+                    min_stop = symbol_info.stop_level * point
+                else:
+                    # 🔧 FIX: Use proper minimum stop based on symbol type
+                    if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
+                        min_stop = 20 * point  # 20 pips for JPY (0.20)
+                    else:
+                        min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
                 # Add safety buffer
                 buffer = max(min_stop, 10 * point)
@@ -691,18 +699,41 @@ Bot: Nyx AI Level 6
                 
                 if signal == "BUY":
                     if stop_loss is None:
-                        stop_loss = entry_price - buffer
+                        sl = entry_price - buffer
                     if take_profit is None:
-                        take_profit = entry_price + (buffer * 2)  # 1:2 RR
+                        tp = entry_price + (buffer * 2)  # 1:2 RR
+                    
+                    # 🔧 ADDITIONAL VALIDATION: Ensure minimum distance
+                    if abs(entry_price - sl) < min_stop:
+                        sl = entry_price - (min_stop * 2)
+                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (too close)")
+                    
+                    if abs(tp - entry_price) < min_stop:
+                        tp = entry_price + (min_stop * 2)
+                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (too close)")
+                        
                 else:  # SELL
                     if stop_loss is None:
-                        stop_loss = entry_price + buffer
+                        sl = entry_price + buffer
                     if take_profit is None:
-                        take_profit = entry_price - (buffer * 2)  # 1:2 RR
+                        tp = entry_price - (buffer * 2)  # 1:2 RR
+                    
+                    # 🔧 ADDITIONAL VALIDATION: Ensure minimum distance
+                    if abs(sl - entry_price) < min_stop:
+                        sl = entry_price + (min_stop * 2)
+                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (too close)")
+                    
+                    if abs(entry_price - tp) < min_stop:
+                        tp = entry_price - (min_stop * 2)
+                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (too close)")
+                
+                # Update the final values
+                stop_loss = sl if stop_loss is None else stop_loss
+                take_profit = tp if take_profit is None else take_profit
             
             # PART 7: TRADE QUALITY FILTER
+            # 🔧 RE-ENABLED FOR VPS PRODUCTION
             if confidence < 70.0:
-                # PART 10: Reduce noise - only log critical blocks
                 logger.debug(f"Trade blocked: Low confidence ({confidence:.1f}% < 70%)")
                 return False
                 
@@ -720,6 +751,7 @@ Bot: Nyx AI Level 6
                     return False
                     
                 rr_ratio = reward / risk
+                # 🔧 RE-ENABLED FOR VPS PRODUCTION
                 if rr_ratio < 1.5:
                     logger.debug(f"Trade blocked: Low R/R ratio ({rr_ratio:.2f} < 1.5)")
                     return False
@@ -735,6 +767,7 @@ Bot: Nyx AI Level 6
                 else:
                     spread_pips = spread_points * 10000  # Fallback for 5-digit brokers
                     
+                # 🔧 RE-ENABLED FOR VPS PRODUCTION
                 if spread_pips > 3.0:
                     logger.debug(f"Trade blocked: High spread ({spread_pips:.1f} > 3.0 pips)")
                     return False
@@ -894,6 +927,7 @@ Bot: Nyx AI Level 6
                     take_profit = None  # Use original calculation
             
             # EXECUTE TRADE
+            logger.info(f"🔧 About to call place_trade for {symbol}...")
             result = place_trade(
                 symbol=symbol,
                 signal=signal,
@@ -901,6 +935,14 @@ Bot: Nyx AI Level 6
                 sl=stop_loss,
                 tp=take_profit
             )
+            
+            logger.info(f"🔧 place_trade returned: {result}")
+            if result is None:
+                logger.error(f"❌ place_trade returned None - execution failed")
+                return False
+            elif hasattr(result, 'retcode') and result.retcode != mt5.TRADE_RETCODE_DONE:
+                logger.error(f"❌ place_trade failed with retcode: {result.retcode}")
+                return False
             
             if result:
                 # LEVEL 5: Update trade memory and time for anti-spam
@@ -935,6 +977,9 @@ Score: {trade_score:.3f}
                 
                 # LEVEL 7: Journal the trade
                 self._journal_trade(symbol, signal, entry_price, stop_loss, take_profit, final_lot_size, "EXECUTED", datetime.now())
+                
+                # 🔧 FIX 3: CORRECT RETURN LOGIC
+                return True  # Return True only on successful execution
                 
             else:
                 # LEVEL 5: Safe execution - log error and continue
