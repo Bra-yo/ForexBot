@@ -8,7 +8,7 @@ import sys
 import time
 import signal
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import MetaTrader5 as mt5
 
@@ -19,6 +19,44 @@ from bot_controller import BotController
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Trade timeout configuration
+MAX_TRADE_DURATION_MINUTES = 10
+
+def manage_open_trades():
+    """Close trades that exceed maximum duration"""
+    positions = mt5.positions_get()
+    
+    if positions is None:
+        return
+    
+    for pos in positions:
+        open_time = datetime.fromtimestamp(pos.time)
+        now = datetime.now()
+        
+        duration = (now - open_time).total_seconds() / 60
+        
+        if duration > MAX_TRADE_DURATION_MINUTES:
+            logger.info(f"⏱ Closing {pos.symbol} — exceeded {MAX_TRADE_DURATION_MINUTES} mins")
+            
+            close_request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": pos.symbol,
+                "volume": pos.volume,
+                "type": mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY,
+                "position": pos.ticket,
+                "price": mt5.symbol_info_tick(pos.symbol).bid,
+                "deviation": 10,
+                "magic": 123456,
+                "comment": "Timeout close",
+            }
+            
+            result = mt5.order_send(close_request)
+            
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"✅ Closed {pos.symbol} (timeout)")
+            else:
+                logger.error(f"❌ Failed to close {pos.symbol}: {result.retcode}")
 
 class MultiPairLiveBot:
     """Enhanced multi-pair trading bot with Level 3 Intelligence"""
@@ -288,6 +326,9 @@ class MultiPairLiveBot:
                     if self.controller.check_emergency_stop():
                         logger.warning("Emergency stop triggered - breaking loop")
                         break
+                    
+                    # 🔥 ADD TRADE TIMEOUT MANAGER
+                    manage_open_trades()
                     
                     # Run multi-pair analysis
                     self.run_analysis_cycle()

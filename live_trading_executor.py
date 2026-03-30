@@ -399,13 +399,16 @@ Bot: Nyx AI Level 6
     def _calculate_trade_score(self, symbol, confidence, trend_strength=0.5, volume_factor=0.5, momentum=0.5, volatility=0.5):
         """LEVEL 7: Calculate weighted trade score"""
         try:
+            # 🔧 FIX 4: DEBUG SCORE INPUTS
+            logger.info(f"🔍 Score inputs for {symbol}: Trend={trend_strength}, Volume={volume_factor}, Momentum={momentum}, Volatility={volatility}")
+            
             # Get market data for scoring (simplified for demo)
             score = (trend_strength * 0.4) + (volume_factor * 0.2) + (momentum * 0.2) + (volatility * 0.2)
             
             # Store score for logging
             self._trade_scores[symbol] = score
             
-            logger.debug(f"Trade score for {symbol}: {score:.3f} (threshold: {self._score_threshold})")
+            logger.info(f"📊 Trade score for {symbol}: {score:.3f} (threshold: {self._score_threshold})")
             return score
             
         except Exception as e:
@@ -673,19 +676,29 @@ Bot: Nyx AI Level 6
             
             # Calculate SL/TP if not provided
             if stop_loss is None or take_profit is None:
-                # Use ATR-based calculation (default 20 pips SL, 40 pips TP)
-                atr_distance = 0.0020  # 20 pips for 5-digit brokers
+                # 🔧 FIX 2: FORCE MINIMUM STOP DISTANCE
+                symbol_info = mt5.symbol_info(symbol)
+                if symbol_info is None:
+                    logger.error(f"Cannot get symbol info for {symbol}")
+                    return False
+                
+                point = symbol_info.point
+                min_stop = symbol_info.stop_level * point
+                
+                # Add safety buffer
+                buffer = max(min_stop, 10 * point)
+                logger.info(f"🔧 Stop distance for {symbol}: min_stop={min_stop:.5f}, buffer={buffer:.5f}")
                 
                 if signal == "BUY":
                     if stop_loss is None:
-                        stop_loss = entry_price - atr_distance
+                        stop_loss = entry_price - buffer
                     if take_profit is None:
-                        take_profit = entry_price + (atr_distance * 2)  # 1:2 RR
+                        take_profit = entry_price + (buffer * 2)  # 1:2 RR
                 else:  # SELL
                     if stop_loss is None:
-                        stop_loss = entry_price + atr_distance
+                        stop_loss = entry_price + buffer
                     if take_profit is None:
-                        take_profit = entry_price - (atr_distance * 2)  # 1:2 RR
+                        take_profit = entry_price - (buffer * 2)  # 1:2 RR
             
             # PART 7: TRADE QUALITY FILTER
             if confidence < 70.0:
@@ -928,7 +941,7 @@ Score: {trade_score:.3f}
                 logger.warning(f"❌ Trade execution failed: {symbol} {signal}")
                 # Do NOT send Telegram for failed trades (LEVEL 5 anti-spam)
                 
-                return True
+                return False  # 🔥 FIX 3: Return False on failed execution
                 
         except Exception as e:
             # LEVEL 5: Safe execution - wrap entire function in try/except
