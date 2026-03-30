@@ -46,7 +46,12 @@ class MultiPairLiveBot:
         
         # Trading configuration
         # Multi-pair configuration
-        self.symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'EURGBP', 'EURJPY', 'GBPJPY', 'NZDUSD', 'EURCHF']
+        self.all_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'EURGBP', 'EURJPY', 'GBPJPY', 'NZDUSD', 'EURCHF']
+        
+        # LEVEL 7: Filter available symbols at startup
+        self.symbols = self._get_available_symbols()
+        logger.info(f"Available symbols for trading: {self.symbols}")
+        
         self.timeframe_names = {
             mt5.TIMEFRAME_M15: "M15",
             mt5.TIMEFRAME_M30: "M30", 
@@ -59,6 +64,28 @@ class MultiPairLiveBot:
         # Trading state
         self.is_running = False
         
+    def _get_available_symbols(self):
+        """LEVEL 7: Check which symbols are available on the broker"""
+        available_symbols = []
+        
+        for symbol in self.all_symbols:
+            try:
+                symbol_info = mt5.symbol_info(symbol)
+                if symbol_info and symbol_info.visible:
+                    # Check if we can get tick data
+                    tick = mt5.symbol_info_tick(symbol)
+                    if tick:
+                        available_symbols.append(symbol)
+                        logger.info(f"✅ {symbol} - Available")
+                    else:
+                        logger.warning(f"❌ {symbol} - No tick data (market closed)")
+                else:
+                    logger.warning(f"❌ {symbol} - Not available or not visible")
+            except Exception as e:
+                logger.error(f"❌ {symbol} - Error checking: {e}")
+        
+        return available_symbols
+    
     def signal_handler(self, signum, frame):
         """Handle Ctrl+C and termination signals"""
         logger.info(f"Received signal {signum} - stopping bot...")
@@ -149,6 +176,7 @@ class MultiPairLiveBot:
                         
                         if signal and confidence > 50:  # Minimum confidence threshold
                             symbol_signals.append((signal, confidence, timeframe))
+                            logger.debug(f"Signal found: {symbol} {signal} @ {confidence:.1f}%")
                             
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol} {self.timeframe_names[timeframe]}: {e}")
@@ -160,17 +188,50 @@ class MultiPairLiveBot:
                     best_signal = max(symbol_signals, key=lambda x: x[1])
                     signal, confidence, timeframe = best_signal
                     
+                    logger.info(f"🎯 Best signal for {symbol}: {signal} @ {confidence:.1f}% ({self.timeframe_names[timeframe]})")
+                    
                     # Execute trade
                     trades_attempted += 1
                     
+                    logger.info(f"🔍 Attempting to execute trade for {symbol}...")
+                    
                     # Get current price for entry
-                    tick = mt5.symbol_info_tick(symbol)
-                    if not tick:
-                        logger.warning(f"No tick data for {symbol}")
+                    # LEVEL 7: Enhanced symbol validation with connection check
+                    try:
+                        logger.info(f"📊 Checking MT5 connection for {symbol}...")
+                        if not mt5.initialize():
+                            logger.error("MT5 connection lost - reinitializing...")
+                            if not mt5.initialize():
+                                logger.error("Failed to reinitialize MT5")
+                                continue
+                        
+                        logger.info(f"🔍 Getting symbol info for {symbol}...")
+                        symbol_info = mt5.symbol_info(symbol)
+                        if not symbol_info:
+                            logger.warning(f"Symbol {symbol} not found on broker - skipping")
+                            continue
+                        
+                        if not symbol_info.visible:
+                            logger.warning(f"Symbol {symbol} not visible/enabled - skipping")
+                            continue
+                        
+                        logger.info(f"📈 Getting tick data for {symbol}...")
+                        tick = mt5.symbol_info_tick(symbol)
+                        if not tick:
+                            logger.warning(f"No tick data for {symbol} - market may be closed")
+                            continue
+                        
+                        logger.info(f"✅ Symbol validation passed for {symbol}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error getting symbol data for {symbol}: {e}")
                         continue
                         
                     entry_price = tick.ask if signal == "BUY" else tick.bid
                     
+                    logger.info(f"💰 Entry price for {symbol}: {entry_price:.5f}")
+                    
+                    logger.info(f"🚀 Calling execute_live_trade for {symbol}...")
                     success = self.live_executor.execute_live_trade(
                         signal=signal,
                         confidence=confidence,
@@ -180,6 +241,8 @@ class MultiPairLiveBot:
                         lot_size=0.01,   # Default lot size
                         symbol=symbol
                     )
+                    
+                    logger.info(f"📊 Trade execution result for {symbol}: {success}")
                     
                     if success:
                         trades_executed += 1
@@ -293,7 +356,7 @@ def main():
     print("   [OK] Spread filter (max 5.0 pips)")
     print("   [OK] Trading hours filter (6:00-20:00)")
     print("   [OK] Weekend protection")
-    print("   [OK] Multiple pairs: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, EURGBP, EURJPY, GBPJPY, NZDUSD, EURCHF")
+    print("   [OK] Multiple pairs: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, EURGBP, EURJPY, GBPJPY, NZDUSD, EURCHF")  # Revert to static list for safety check
     print("   [OK] Multiple timeframes: M15, M30, H1")
     
     print("\nNYX AI RISK WARNING")
@@ -305,7 +368,7 @@ def main():
     
     print("\nSTARTING NYX AI LIVE TRADING")
     print(f"   Time: {datetime.now().strftime('%H:%M:%S')}")
-    print("   Symbols: 10 major currency pairs")
+    print("   Symbols: Up to 10 major currency pairs (will filter available)")  # LEVEL 7: Fix bot reference issue
     print("   Timeframes: M15, M30, H1")
     print("   Cycle: Every 1 minute")
     print("   Max concurrent trades: 30 (3 per symbol)")
@@ -319,6 +382,10 @@ def main():
     
     # Create bot instance
     bot = MultiPairLiveBot(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
+    
+    # LEVEL 7: Show actual available symbols after bot creation
+    print(f"✅ Available symbols: {', '.join(bot.symbols)}")
+    print(f"📊 Will trade {len(bot.symbols)} pairs instead of unavailable ones")
     
     try:
         # Start trading
