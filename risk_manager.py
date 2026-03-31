@@ -20,24 +20,26 @@ class RiskManager:
         if not ENABLE_SESSION_FILTER:
             return True, "Session filter disabled"
             
-        current_time = datetime.now()
-        current_hour = current_time.hour
+        current_hour = datetime.now().hour
         
+        # Check Asian session (00:00-08:00 UTC)
+        asian_active = ASIAN_SESSION_START <= current_hour < ASIAN_SESSION_END
         # Check London session (08:00-17:00 UTC)
         london_active = LONDON_SESSION_START <= current_hour < LONDON_SESSION_END
-        
         # Check New York session (13:00-22:00 UTC)
         ny_active = NEW_YORK_SESSION_START <= current_hour < NEW_YORK_SESSION_END
         
-        if london_active or ny_active:
+        if asian_active or london_active or ny_active:
             session_info = []
+            if asian_active:
+                session_info.append("Asian")
             if london_active:
                 session_info.append("London")
             if ny_active:
                 session_info.append("New York")
             return True, f"Allowed: {', '.join(session_info)} session"
         else:
-            return False, f"Blocked: Outside trading hours (London: {LONDON_SESSION_START}-{LONDON_SESSION_END}, NY: {NEW_YORK_SESSION_START}-{NEW_YORK_SESSION_END} UTC)"
+            return False, f"Blocked: Outside trading hours (Asian: {ASIAN_SESSION_START}-{ASIAN_SESSION_END}, London: {LONDON_SESSION_START}-{LONDON_SESSION_END}, NY: {NEW_YORK_SESSION_START}-{NEW_YORK_SESSION_END} UTC)"
             
     def check_volatility_filter(self, symbol):
         """Check for news volatility and spread expansion"""

@@ -124,8 +124,8 @@ PREVENT_DUPLICATE_ORDERS = True
 MAX_OPEN_TRADES = 7  # PART 8: Increased from 5 to 7
 MAX_LOT_SIZE = 0.5  # Maximum lot size
 MAX_SPREAD_PIPS = 5.0  # Maximum allowed spread
-TRADING_HOURS_START = 6  # 06:00 UTC
-TRADING_HOURS_END = 20  # 20:00 UTC
+TRADING_HOURS_START = 0  # 00:00 UTC (24/5 for VPS)
+TRADING_HOURS_END = 24  # 24:00 UTC (24/5 for VPS)
 
 # ==========================================
 # SYMBOL GROUPS FOR CORRELATION
