@@ -127,6 +127,8 @@ class LiveTradingExecutor:
         self._atr_multiplier_tp = 2.5   # gives ~1:1.6–1:2 R/R
         self._min_rr = 1.3              # lower slightly to allow more trades
         self._min_sl_pips = 20          # reduced from 40 → more trades allowed
+        self._use_atr_stops = True      # Enable ATR-based dynamic stops
+        self._max_spread_pips = 5.0      # Increased from 3.0 to 5.0 pips
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
@@ -1040,9 +1042,9 @@ Bot: Nyx AI Level 6
 
                 logger.info(f"🔧 Spread check for {symbol}: {spread_pips:.1f} pips")
                 
-                # 🔧 RE-ENABLED FOR VPS PRODUCTION
-                if spread_pips > 3.0:
-                    logger.info(f"Trade blocked: High spread ({spread_pips:.1f} > 3.0 pips)")
+                # 🔧 LEVEL 8: SMART SPREAD FILTER (INCREASED TO 5.0 PIPS)
+                if spread_pips > self._max_spread_pips:
+                    logger.info(f"Trade blocked: High spread ({spread_pips:.1f} > {self._max_spread_pips:.1f} pips)")
                     return False
                 else:
                     logger.info(f"✅ Spread check passed for {symbol}: {spread_pips:.1f} pips")
