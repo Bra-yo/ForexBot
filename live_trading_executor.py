@@ -122,9 +122,10 @@ class LiveTradingExecutor:
         self._last_candle_time = {}  # Track last candle time per symbol
         self._required_cycles_wait = 3  # Wait 3 cycles between trades
         
-        # 🔥 CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
-        self._min_tp_pips = 15  # Minimum TP distance in pips
-        self._min_sl_multiplier = 1.5  # SL must be at least 1.5x broker minimum (reduced from 2x)
+        # 🔥 CRITICAL FIX #3: ATR-ADAPTIVE PROFIT DISTANCE
+        self._min_tp_pips = 15  # Minimum TP distance in pips (fallback only)
+        self._min_sl_multiplier = 1.5  # SL must be at least 1.5x broker minimum (fallback only)
+        self._use_atr_stops = True  # Enable ATR-based dynamic stops
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
@@ -421,13 +422,48 @@ Bot: Nyx AI Level 6
     
     # 🔥 CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
     def _check_minimum_profit_distance(self, symbol, entry_price, stop_loss, take_profit):
-        """Ensure TP ≥ 15 pips and SL ≥ broker minimum × 2"""
+        # 🔥 PRO LEVEL: ATR-ADAPTIVE DISTANCE CHECK
+        """Check if TP/SL distances are appropriate - adapts to ATR or uses fallback"""
         try:
             symbol_info = mt5.symbol_info(symbol)
             if not symbol_info:
                 return False, "Cannot get symbol info"
             
             point = symbol_info.point
+            
+            # Try ATR-based validation first
+            if self._use_atr_stops:
+                atr_value = self.get_atr_value(symbol)
+                if atr_value and atr_value > 0:
+                    # Convert to scalar if needed
+                    if hasattr(atr_value, '__len__') and len(atr_value) > 0:
+                        atr_value = atr_value[-1]
+                    elif hasattr(atr_value, 'item'):
+                        atr_value = atr_value.item()
+                    
+                    # ATR-based validation (more flexible)
+                    min_sl_atr = atr_value * 1.0  # Minimum SL = 1x ATR
+                    min_tp_atr = atr_value * 2.0  # Minimum TP = 2x ATR
+                    
+                    if stop_loss and entry_price:
+                        sl_distance = abs(entry_price - stop_loss)
+                        sl_pips = sl_distance / point
+                        
+                        if sl_pips < min_sl_atr / point:
+                            return False, f"SL too tight for volatility: {sl_pips:.1f} < {min_sl_atr/point:.1f} ATR-based pips"
+                    
+                    if take_profit and entry_price:
+                        tp_distance = abs(take_profit - entry_price)
+                        tp_pips = tp_distance / point
+                        
+                        if tp_pips < min_tp_atr / point:
+                            return False, f"TP too tight for volatility: {tp_pips:.1f} < {min_tp_atr/point:.1f} ATR-based pips"
+                    
+                    logger.info(f"✅ ATR-based distance validation passed for {symbol}")
+                    return True, f"ATR-based distances satisfied (SL: {sl_pips:.1f}, TP: {tp_pips:.1f} pips)"
+            
+            # Fallback to fixed pip validation (if ATR fails)
+            logger.warning(f"⚠️ Using fallback distance validation for {symbol}")
             
             # Calculate distances in pips
             if stop_loss and entry_price:
@@ -447,7 +483,7 @@ Bot: Nyx AI Level 6
                 if tp_pips < self._min_tp_pips:
                     return False, f"TP too close: {tp_pips:.1f} < {self._min_tp_pips} pips"
             
-            return True, "Minimum profit distance satisfied"
+            return True, "Fixed distance validation passed"
             
         except Exception as e:
             logger.error(f"Error checking minimum profit distance: {e}")
@@ -865,39 +901,72 @@ Bot: Nyx AI Level 6
                     else:
                         min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
-                # Add safety buffer - OPTIMIZED FOR BETTER R/R RATIOS
-                buffer = max(min_stop, 15 * point)  # Reduced from 20x to 15x point for better R/R
-                logger.info(f"🔧 Stop distance for {symbol}: min_stop={min_stop:.5f}, buffer={buffer:.5f}")
+                # 🔥 PRO LEVEL: ATR-BASED SL/TP CALCULATION
+                # Get ATR value for dynamic stop loss/take profit
+                atr_value = self.get_atr_value(symbol)
                 
-                if signal == "BUY":
-                    if stop_loss is None:
-                        sl = entry_price - buffer
-                    if take_profit is None:
-                        tp = entry_price + (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
+                if atr_value and atr_value > 0:
+                    # Convert to scalar if needed
+                    if hasattr(atr_value, '__len__') and len(atr_value) > 0:
+                        atr_value = atr_value[-1]
+                    elif hasattr(atr_value, 'item'):
+                        atr_value = atr_value.item()
                     
-                    # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
-                    if abs(entry_price - sl) < min_stop:
-                        sl = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
+                    # PRO LEVEL: ATR-based calculations
+                    sl_distance = atr_value * 1.5  # SL = 1.5x ATR
+                    tp_distance = atr_value * 3.0  # TP = 3x ATR (2:1 RR ratio)
                     
-                    if abs(tp - entry_price) < min_stop:
-                        tp = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
+                    logger.info(f"🔥 ATR-based for {symbol}: ATR={atr_value:.5f}, SL={sl_distance:.5f}, TP={tp_distance:.5f}")
+                    
+                    # Calculate SL/TP based on signal
+                    if signal == "BUY":
+                        if stop_loss is None:
+                            sl = entry_price - sl_distance
+                        if take_profit is None:
+                            tp = entry_price + tp_distance
+                    else:  # SELL
+                        if stop_loss is None:
+                            sl = entry_price + sl_distance
+                        if take_profit is None:
+                            tp = entry_price - tp_distance
+                            
+                else:
+                    # Fallback to original calculation if ATR fails
+                    logger.warning(f"⚠️ ATR calculation failed for {symbol} - using fallback")
+                    
+                    # Add safety buffer - OPTIMIZED FOR BETTER R/R RATIOS
+                    buffer = max(min_stop, 15 * point)  # Reduced from 20x to 15x point for better R/R
+                    logger.info(f"🔧 Fallback buffer for {symbol}: min_stop={min_stop:.5f}, buffer={buffer:.5f}")
+                    
+                    if signal == "BUY":
+                        if stop_loss is None:
+                            sl = entry_price - buffer
+                        if take_profit is None:
+                            tp = entry_price + (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
                         
-                else:  # SELL
-                    if stop_loss is None:
-                        sl = entry_price + buffer
-                    if take_profit is None:
-                        tp = entry_price - (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
-                    
-                    # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
-                    if abs(sl - entry_price) < min_stop:
-                        sl = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
-                    
-                    if abs(entry_price - tp) < min_stop:
-                        tp = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
+                        # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
+                        if abs(entry_price - sl) < min_stop:
+                            sl = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
+                            logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
+                        
+                        if abs(tp - entry_price) < min_stop:
+                            tp = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
+                            logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
+                            
+                    else:  # SELL
+                        if stop_loss is None:
+                            sl = entry_price + buffer
+                        if take_profit is None:
+                            tp = entry_price - (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
+                        
+                        # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
+                        if abs(sl - entry_price) < min_stop:
+                            sl = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
+                            logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
+                        
+                        if abs(entry_price - tp) < min_stop:
+                            tp = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
+                            logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
                 
                 # Update the final values
                 stop_loss = sl if stop_loss is None else stop_loss
