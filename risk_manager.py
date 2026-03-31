@@ -58,10 +58,18 @@ class RiskManager:
             
             # Get ATR for comparison
             atr_value = self.get_atr_value(symbol)
-            if atr_value is not None and atr_value > 0:  # Ensure scalar and valid
-                # Check if current range > 2× ATR (news spike)
-                if candle_range > atr_value * VOLATILITY_SPIKE_MULTIPLIER:
-                    return False, f"Volatility spike ({candle_range:.5f} > {atr_value * VOLATILITY_SPIKE_MULTIPLIER:.5f})"
+            # 🔧 FIX: Handle array/scalar ATR values
+            if atr_value is not None:
+                # Convert to scalar if it's an array
+                if hasattr(atr_value, '__len__') and len(atr_value) > 0:
+                    atr_value = atr_value[-1]  # Use last value
+                elif hasattr(atr_value, 'item'):
+                    atr_value = atr_value.item()  # Convert numpy scalar
+                    
+                if atr_value > 0:  # Ensure scalar and valid
+                    # Check if current range > 2× ATR (news spike)
+                    if candle_range > atr_value * VOLATILITY_SPIKE_MULTIPLIER:
+                        return False, f"Volatility spike ({candle_range:.5f} > {atr_value * VOLATILITY_SPIKE_MULTIPLIER:.5f})"
             
             # Check spread expansion
             tick = mt5.symbol_info_tick(symbol)

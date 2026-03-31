@@ -685,10 +685,18 @@ Bot: Nyx AI Level 6
                     return False
                 
                 point = symbol_info.point
-                # 🔧 CRITICAL FIX: Use correct attribute name
-                if hasattr(symbol_info, 'stop_level') and symbol_info.stop_level > 0:
-                    min_stop = symbol_info.stop_level * point
-                else:
+                # 🔧 CRITICAL FIX: Use correct attribute name with try-catch
+                try:
+                    if hasattr(symbol_info, 'stop_level') and symbol_info.stop_level > 0:
+                        min_stop = symbol_info.stop_level * point
+                    else:
+                        # 🔧 FIX: Use proper minimum stop based on symbol type
+                        if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
+                            min_stop = 20 * point  # 20 pips for JPY (0.20)
+                        else:
+                            min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
+                except AttributeError as e:
+                    logger.warning(f"⚠️ SymbolInfo stop_level attribute error: {e}")
                     # 🔧 FIX: Use proper minimum stop based on symbol type
                     if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
                         min_stop = 20 * point  # 20 pips for JPY (0.20)
@@ -773,11 +781,18 @@ Bot: Nyx AI Level 6
                 if spread_pips > 3.0:
                     logger.debug(f"Trade blocked: High spread ({spread_pips:.1f} > 3.0 pips)")
                     return False
+                else:
+                    logger.info(f"✅ Spread check passed for {symbol}: {spread_pips:.1f} pips")
+            else:
+                logger.warning(f"❌ No tick data for {symbol}")
+                return False
             
             # CRITICAL FIX 1: Add final None validation before logging
             if any(val is None for val in [entry_price, stop_loss, take_profit, lot_size]):
                 logger.warning("Invalid trade data - skipped (None values detected)")
                 return False
+            
+            logger.info(f"🔧 About to enter Level 5 execution engine for {symbol}...")
             
             # LEVEL 5: SMART EXECUTION ENGINE
             # 1. Anti-spam protection
@@ -817,7 +832,7 @@ Bot: Nyx AI Level 6
             logger.info(f"   Entry: {entry_price:.5f}")
             logger.info(f"   SL: {stop_loss:.5f}")
             logger.info(f"   TP: {take_profit:.5f}")
-            logger.info(f"   Lot: {lot_size:.2f}")
+            logger.info(f"   Lot: {lot_size}")
             
             # PROFESSIONAL RISK MANAGEMENT
             # 1. Session Filter
@@ -992,7 +1007,9 @@ Score: {trade_score:.3f}
                 
         except Exception as e:
             # LEVEL 5: Safe execution - wrap entire function in try/except
+            import traceback
             logger.error(f"❌ Critical error in trade execution: {e}")
+            logger.error(f"🔍 Traceback: {traceback.format_exc()}")
             return False  # Continue bot loop, do NOT crash
     
     def monitor_positions(self):
