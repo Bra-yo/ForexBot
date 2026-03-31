@@ -125,16 +125,12 @@ class LiveTradingExecutor:
         self._trading_stopped_for_drawdown = False
         
         # LEVEL 6: SMART TRADING HOURS
-        self._london_session_start = 8   # 08:00 UTC
-        self._london_session_end = 12    # 12:00 UTC
-        self._ny_session_start = 13      # 13:00 UTC
-        self._ny_session_end = 17        # 17:00 UTC
-        
-        # LEVEL 7: TEMPORARY - Extend trading hours for testing
-        self._london_session_start = 0   # 00:00 UTC (midnight)
-        self._london_session_end = 23    # 23:00 UTC (11 PM - 24/7 testing)
-        self._ny_session_start = 0       # 00:00 UTC (midnight)
-        self._ny_session_end = 23        # 23:00 UTC (11 PM - 24/7 testing)
+        self._asian_session_start = 0     # 00:00 UTC
+        self._asian_session_end = 7       # 07:00 UTC
+        self._london_session_start = 8    # 08:00 UTC
+        self._london_session_end = 17     # 17:00 UTC
+        self._ny_session_start = 13       # 13:00 UTC
+        self._ny_session_end = 22         # 22:00 UTC
         
         # LEVEL 7: TRADE SCORING SYSTEM
         self._trade_scores = {}  # Track scores per symbol
@@ -343,18 +339,24 @@ Bot: Nyx AI Level 6
         current_hour = datetime.now().hour
         logger.info(f"🕐 Current hour: {current_hour} UTC")
         
-        # Check London session (08:00-12:00 UTC)
+        # Check Asian session (00:00-07:00 UTC)
+        if self._asian_session_start <= current_hour < self._asian_session_end:
+            logger.info(f"✅ Asian Session active ({self._asian_session_start}:00-{self._asian_session_end}:00 UTC)")
+            return True, "Asian Session"
+            
+        # Check London session (08:00-17:00 UTC)
         if self._london_session_start <= current_hour < self._london_session_end:
             logger.info(f"✅ London Session active ({self._london_session_start}:00-{self._london_session_end}:00 UTC)")
             return True, "London Session"
             
-        # Check New York session (13:00-17:00 UTC)
+        # Check New York session (13:00-22:00 UTC)
         if self._ny_session_start <= current_hour < self._ny_session_end:
             logger.info(f"✅ New York Session active ({self._ny_session_start}:00-{self._ny_session_end}:00 UTC)")
             return True, "New York Session"
             
         # Outside trading sessions
         logger.warning(f"❌ Outside trading session (Hour: {current_hour} UTC)")
+        logger.warning(f"   Asian: {self._asian_session_start}:00-{self._asian_session_end}:00 UTC")
         logger.warning(f"   London: {self._london_session_start}:00-{self._london_session_end}:00 UTC")
         logger.warning(f"   New York: {self._ny_session_start}:00-{self._ny_session_end}:00 UTC")
         return False, f"Outside trading session (Hour: {current_hour} UTC)"
