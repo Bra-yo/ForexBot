@@ -113,6 +113,27 @@ class LiveTradingExecutor:
         self._last_telegram_trade = {}  # LEVEL 5: Track last Telegram per symbol
         self._trade_memory = {}  # LEVEL 5: Track last trade (symbol: {signal, time})
         
+        # 🔥 CRITICAL FIX #1: ONE DIRECTION PER PAIR
+        self._last_trade_direction = {}  # Track last trade direction per symbol
+        self._direction_lock_time = {}   # Track when direction lock was set
+        
+        # 🔥 CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
+        self._cycle_count = {}  # Track cycles per symbol
+        self._last_candle_time = {}  # Track last candle time per symbol
+        self._required_cycles_wait = 3  # Wait 3 cycles between trades
+        
+        # 🔥 CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
+        self._min_tp_pips = 15  # Minimum TP distance in pips
+        self._min_sl_multiplier = 2  # SL must be at least 2x broker minimum
+        
+        # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
+        self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
+        
+        # 🔥 CRITICAL FIX #5: LOSS PROTECTION
+        self._consecutive_losses = {}  # Track consecutive losses per symbol
+        self._loss_cooldown_time = {}  # Track when loss cooldown started
+        self._loss_cooldown_duration = 1800  # 30 minutes in seconds
+        
         # LEVEL 6: PROFIT TRACKING SYSTEM
         self._starting_balance = None
         self._daily_profit = 0.0
@@ -360,6 +381,147 @@ Bot: Nyx AI Level 6
         logger.warning(f"   London: {self._london_session_start}:00-{self._london_session_end}:00 UTC")
         logger.warning(f"   New York: {self._ny_session_start}:00-{self._ny_session_end}:00 UTC")
         return False, f"Outside trading session (Hour: {current_hour} UTC)"
+    
+    # 🔥 CRITICAL FIX #1: ONE DIRECTION PER PAIR
+    def _check_trade_direction_consistency(self, symbol, signal):
+        """Check if signal is consistent with last trade direction"""
+        if symbol not in self._last_trade_direction:
+            # First trade for this symbol - allow any direction
+            return True, "First trade - direction set"
+        
+        last_direction = self._last_trade_direction[symbol]
+        
+        if last_direction != signal:
+            return False, f"Direction mismatch: last was {last_direction}, current is {signal}"
+        
+        return True, f"Direction consistent: {signal}"
+    
+    # 🔥 CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
+    def _check_strong_cooldown(self, symbol):
+        """Check if enough cycles or new candle has passed"""
+        current_time = time.time()
+        
+        # Check cycle cooldown
+        if symbol in self._cycle_count:
+            cycles_since_last_trade = current_time - self._cycle_count[symbol]
+            required_wait = self._required_cycles_wait * 60  # 3 cycles = 3 minutes
+            
+            if cycles_since_last_trade < required_wait:
+                remaining = required_wait - cycles_since_last_trade
+                return False, f"Cycle cooldown: {remaining/60:.1f} cycles remaining"
+        
+        # Check new candle cooldown (M15 = 15 minutes)
+        if symbol in self._last_candle_time:
+            time_since_candle = current_time - self._last_candle_time[symbol]
+            if time_since_candle < 900:  # 15 minutes for M15
+                remaining = 900 - time_since_candle
+                return False, f"Waiting for new candle: {remaining/60:.1f} minutes"
+        
+        return True, "Cooldown passed"
+    
+    # 🔥 CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
+    def _check_minimum_profit_distance(self, symbol, entry_price, stop_loss, take_profit):
+        """Ensure TP ≥ 15 pips and SL ≥ broker minimum × 2"""
+        try:
+            symbol_info = mt5.symbol_info(symbol)
+            if not symbol_info:
+                return False, "Cannot get symbol info"
+            
+            point = symbol_info.point
+            
+            # Calculate distances in pips
+            if stop_loss and entry_price:
+                sl_distance = abs(entry_price - stop_loss)
+                sl_pips = sl_distance / point
+                
+                # Minimum SL must be 2x broker minimum (typically 20 pips)
+                min_sl_pips = 40  # 2x 20 pips
+                
+                if sl_pips < min_sl_pips:
+                    return False, f"SL too close: {sl_pips:.1f} < {min_sl_pips} pips"
+            
+            if take_profit and entry_price:
+                tp_distance = abs(take_profit - entry_price)
+                tp_pips = tp_distance / point
+                
+                if tp_pips < self._min_tp_pips:
+                    return False, f"TP too close: {tp_pips:.1f} < {self._min_tp_pips} pips"
+            
+            return True, "Minimum profit distance satisfied"
+            
+        except Exception as e:
+            logger.error(f"Error checking minimum profit distance: {e}")
+            return False, f"Error: {e}"
+    
+    # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
+    def _check_trade_limit_per_pair(self, symbol):
+        """Check if max trades per pair limit is reached"""
+        try:
+            positions = mt5.positions_get(symbol=symbol)
+            if positions is None:
+                return True, "No positions found"
+            
+            current_trades = len(positions)
+            
+            if current_trades >= self._max_trades_per_pair:
+                return False, f"Max trades reached: {current_trades} ≥ {self._max_trades_per_pair}"
+            
+            return True, f"Trade limit OK: {current_trades}/{self._max_trades_per_pair}"
+            
+        except Exception as e:
+            logger.error(f"Error checking trade limit: {e}")
+            return False, f"Error: {e}"
+    
+    # 🔥 CRITICAL FIX #5: LOSS PROTECTION
+    def _check_loss_protection(self, symbol):
+        """Check if symbol is in loss cooldown after consecutive losses"""
+        current_time = time.time()
+        
+        # Check if currently in loss cooldown
+        if symbol in self._loss_cooldown_time:
+            cooldown_end = self._loss_cooldown_time[symbol] + self._loss_cooldown_duration
+            
+            if current_time < cooldown_end:
+                remaining = cooldown_end - current_time
+                return False, f"Loss cooldown: {remaining/60:.1f} minutes remaining"
+            else:
+                # Cooldown expired - reset
+                del self._loss_cooldown_time[symbol]
+                if symbol in self._consecutive_losses:
+                    del self._consecutive_losses[symbol]
+        
+        return True, "Loss protection passed"
+    
+    def _update_trade_direction(self, symbol, signal):
+        """Update the last trade direction for a symbol"""
+        self._last_trade_direction[symbol] = signal
+        self._direction_lock_time[symbol] = time.time()
+        logger.info(f"🔒 Direction locked for {symbol}: {signal}")
+    
+    def _update_cycle_count(self, symbol):
+        """Update cycle count for cooldown tracking"""
+        self._cycle_count[symbol] = time.time()
+        self._last_candle_time[symbol] = time.time()
+        logger.info(f"🔄 Cycle updated for {symbol}")
+    
+    def _update_loss_tracking(self, symbol, was_profitable):
+        """Update loss tracking for consecutive losses"""
+        if was_profitable:
+            # Reset on profitable trade
+            if symbol in self._consecutive_losses:
+                del self._consecutive_losses[symbol]
+            logger.info(f"✅ Profitable trade for {symbol} - loss streak reset")
+        else:
+            # Increment loss count
+            self._consecutive_losses[symbol] = self._consecutive_losses.get(symbol, 0) + 1
+            loss_count = self._consecutive_losses[symbol]
+            
+            logger.warning(f"❌ Loss #{loss_count} for {symbol}")
+            
+            # Start cooldown after 2 consecutive losses
+            if loss_count >= 2:
+                self._loss_cooldown_time[symbol] = time.time()
+                logger.warning(f"🚨 Loss cooldown activated for {symbol} (30 minutes)")
     
     def _update_profit_tracking(self):
         """LEVEL 6: Update daily profit and send periodic updates"""
@@ -830,6 +992,46 @@ Bot: Nyx AI Level 6
             
             logger.info(f"✅ Passed Level 5 checks for {symbol}")
             
+            # 🔥 CRITICAL FIXES: ENFORCE DISCIPLINED TRADING RULES
+            logger.info(f"🛡️ Applying critical trading discipline checks for {symbol}...")
+            
+            # CRITICAL FIX #1: ONE DIRECTION PER PAIR
+            direction_allowed, direction_reason = self._check_trade_direction_consistency(symbol, signal)
+            if not direction_allowed:
+                logger.warning(f"🔒 Trade blocked: {direction_reason}")
+                return False
+            logger.info(f"✅ Direction check passed: {direction_reason}")
+            
+            # CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
+            cooldown_allowed, cooldown_reason = self._check_strong_cooldown(symbol)
+            if not cooldown_allowed:
+                logger.warning(f"⏰ Trade blocked: {cooldown_reason}")
+                return False
+            logger.info(f"✅ Cooldown check passed: {cooldown_reason}")
+            
+            # CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
+            distance_allowed, distance_reason = self._check_minimum_profit_distance(symbol, entry_price, stop_loss, take_profit)
+            if not distance_allowed:
+                logger.warning(f"📏 Trade blocked: {distance_reason}")
+                return False
+            logger.info(f"✅ Profit distance check passed: {distance_reason}")
+            
+            # CRITICAL FIX #4: TRADE LIMIT PER PAIR
+            limit_allowed, limit_reason = self._check_trade_limit_per_pair(symbol)
+            if not limit_allowed:
+                logger.warning(f"🚫 Trade blocked: {limit_reason}")
+                return False
+            logger.info(f"✅ Trade limit check passed: {limit_reason}")
+            
+            # CRITICAL FIX #5: LOSS PROTECTION
+            loss_allowed, loss_reason = self._check_loss_protection(symbol)
+            if not loss_allowed:
+                logger.warning(f"🛑 Trade blocked: {loss_reason}")
+                return False
+            logger.info(f"✅ Loss protection check passed: {loss_reason}")
+            
+            logger.info(f"🎯 ALL CRITICAL CHECKS PASSED for {symbol}")
+            
             logger.info(f"LIVE TRADE REQUEST:")
             logger.info(f"   Signal: {signal}")
             logger.info(f"   Confidence: {confidence:.1f}%")
@@ -969,6 +1171,17 @@ Bot: Nyx AI Level 6
                 # LEVEL 5: Update trade memory and time for anti-spam
                 self._last_trade_time[symbol] = current_time
                 self._trade_memory[symbol] = (signal, current_time)  # Store signal and time
+                
+                # 🔥 CRITICAL FIXES: UPDATE TRACKING SYSTEMS
+                # Update trade direction for consistency
+                self._update_trade_direction(symbol, signal)
+                
+                # Update cycle count for cooldown
+                self._update_cycle_count(symbol)
+                
+                # Note: Loss tracking will be updated when trade closes (in profit/loss monitoring)
+                
+                logger.info(f"🔄 Critical tracking updated for {symbol}: direction={signal}, cycle={current_time}")
                 
                 # Register trade with professional manager
                 self.trade_manager.register_trade(
@@ -1150,6 +1363,11 @@ Score: {trade_score:.3f}
             
             if success:
                 logger.info(f"Successfully closed trade {ticket}")
+                
+                # 🔥 CRITICAL FIX #5: UPDATE LOSS TRACKING
+                was_profitable = position.profit > 0
+                self._update_loss_tracking(position.symbol, was_profitable)
+                
                 if self.telegram:
                     self.telegram.send_message(f"✅ Trade {ticket} closed - P&L: ${position.profit:+.2f}")
                 return True
