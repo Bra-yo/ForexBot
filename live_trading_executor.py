@@ -122,10 +122,11 @@ class LiveTradingExecutor:
         self._last_candle_time = {}  # Track last candle time per symbol
         self._required_cycles_wait = 3  # Wait 3 cycles between trades
         
-        # 🔥 CRITICAL FIX #3: ATR-ADAPTIVE PROFIT DISTANCE
-        self._min_tp_pips = 15  # Minimum TP distance in pips (fallback only)
-        self._min_sl_multiplier = 1.5  # SL must be at least 1.5x broker minimum (fallback only)
-        self._use_atr_stops = True  # Enable ATR-based dynamic stops
+        # 🔥 LEVEL 8: SMART RISK ENGINE SETTINGS
+        self._atr_multiplier_sl = 1.5
+        self._atr_multiplier_tp = 2.5   # gives ~1:1.6–1:2 R/R
+        self._min_rr = 1.3              # lower slightly to allow more trades
+        self._min_sl_pips = 20          # reduced from 40 → more trades allowed
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
@@ -528,6 +529,68 @@ Bot: Nyx AI Level 6
         
         return True, "Loss protection passed"
     
+    # 🔥 LEVEL 8: SMART RISK ENGINE
+    def calculate_smart_sl_tp(self, symbol, entry_price, direction, atr_value, point):
+        """
+        LEVEL 8: Smart SL/TP using ATR + safety rules
+        """
+        
+        # 📏 Convert ATR to price movement
+        sl_distance = atr_value * self._atr_multiplier_sl
+        tp_distance = atr_value * self._atr_multiplier_tp
+        
+        # 🛡️ Ensure minimum SL (prevents SL too close issue)
+        min_sl_price = self._min_sl_pips * point
+        if sl_distance < min_sl_price:
+            sl_distance = min_sl_price
+        
+        # 📈 Direction handling
+        if direction == "BUY":
+            sl = entry_price - sl_distance
+            tp = entry_price + tp_distance
+        else:
+            sl = entry_price + sl_distance
+            tp = entry_price - tp_distance
+        
+        # 📊 Calculate R/R
+        risk = abs(entry_price - sl)
+        reward = abs(tp - entry_price)
+        rr_ratio = reward / risk if risk > 0 else 0
+        
+        logger.info(f"🔥 LEVEL 8 Smart SL/TP for {symbol}: SL={sl:.5f}, TP={tp:.5f}, R/R={rr_ratio:.2f}")
+        
+        return sl, tp, rr_ratio
+    
+    def get_atr(self, symbol, timeframe, period=14):
+        """
+        🔥 ATR FETCH - LEVEL 8 Smart Risk Engine
+        """
+        try:
+            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, period + 1)
+            
+            if rates is None or len(rates) < period:
+                return None
+            
+            highs = [r['high'] for r in rates]
+            lows = [r['low'] for r in rates]
+            closes = [r['close'] for r in rates]
+            
+            tr_values = []
+            for i in range(1, len(rates)):
+                tr = max(
+                    highs[i] - lows[i],
+                    abs(highs[i] - closes[i-1]),
+                    abs(lows[i] - closes[i-1])
+                )
+                tr_values.append(tr)
+            
+            atr = sum(tr_values[-period:]) / period
+            return atr
+            
+        except Exception as e:
+            logger.error(f"Error calculating ATR for {symbol}: {e}")
+            return None
+    
     def _update_trade_direction(self, symbol, signal):
         """Update the last trade direction for a symbol"""
         self._last_trade_direction[symbol] = signal
@@ -901,72 +964,29 @@ Bot: Nyx AI Level 6
                     else:
                         min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
-                # 🔥 PRO LEVEL: ATR-BASED SL/TP CALCULATION
-                # Get ATR value for dynamic stop loss/take profit
-                atr_value = self.get_atr_value(symbol)
+                # 🔥 LEVEL 8: SMART RISK ENGINE - REPLACE ALL SL/TP LOGIC
+                # Get ATR value using LEVEL 8 method
+                atr_value = self.get_atr(symbol, mt5.TIMEFRAME_M15, 14)
                 
-                if atr_value and atr_value > 0:
-                    # Convert to scalar if needed
-                    if hasattr(atr_value, '__len__') and len(atr_value) > 0:
-                        atr_value = atr_value[-1]
-                    elif hasattr(atr_value, 'item'):
-                        atr_value = atr_value.item()
-                    
-                    # PRO LEVEL: ATR-based calculations
-                    sl_distance = atr_value * 1.5  # SL = 1.5x ATR
-                    tp_distance = atr_value * 3.0  # TP = 3x ATR (2:1 RR ratio)
-                    
-                    logger.info(f"🔥 ATR-based for {symbol}: ATR={atr_value:.5f}, SL={sl_distance:.5f}, TP={tp_distance:.5f}")
-                    
-                    # Calculate SL/TP based on signal
-                    if signal == "BUY":
-                        if stop_loss is None:
-                            sl = entry_price - sl_distance
-                        if take_profit is None:
-                            tp = entry_price + tp_distance
-                    else:  # SELL
-                        if stop_loss is None:
-                            sl = entry_price + sl_distance
-                        if take_profit is None:
-                            tp = entry_price - tp_distance
-                            
-                else:
-                    # Fallback to original calculation if ATR fails
-                    logger.warning(f"⚠️ ATR calculation failed for {symbol} - using fallback")
-                    
-                    # Add safety buffer - OPTIMIZED FOR BETTER R/R RATIOS
-                    buffer = max(min_stop, 15 * point)  # Reduced from 20x to 15x point for better R/R
-                    logger.info(f"🔧 Fallback buffer for {symbol}: min_stop={min_stop:.5f}, buffer={buffer:.5f}")
-                    
+                if atr_value is None:
+                    logger.warning(f"⚠️ ATR unavailable for {symbol} - using fallback")
+                    # Fallback to basic calculation
+                    buffer = max(min_stop, 15 * point)
                     if signal == "BUY":
                         if stop_loss is None:
                             sl = entry_price - buffer
                         if take_profit is None:
-                            tp = entry_price + (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
-                        
-                        # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
-                        if abs(entry_price - sl) < min_stop:
-                            sl = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                            logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
-                        
-                        if abs(tp - entry_price) < min_stop:
-                            tp = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                            logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
-                            
-                    else:  # SELL
+                            tp = entry_price + (buffer * 2.0)
+                    else:
                         if stop_loss is None:
                             sl = entry_price + buffer
                         if take_profit is None:
-                            tp = entry_price - (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
-                        
-                        # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
-                        if abs(sl - entry_price) < min_stop:
-                            sl = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                            logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
-                        
-                        if abs(entry_price - tp) < min_stop:
-                            tp = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
-                            logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
+                            tp = entry_price - (buffer * 2.0)
+                else:
+                    # � LEVEL 8: SMART SL/TP CALCULATION
+                    sl, tp, rr_ratio = self.calculate_smart_sl_tp(
+                        symbol, entry_price, signal, atr_value, point
+                    )
                 
                 # Update the final values
                 stop_loss = sl if stop_loss is None else stop_loss
@@ -978,26 +998,34 @@ Bot: Nyx AI Level 6
                 logger.debug(f"Trade blocked: Low confidence ({confidence:.1f}% < 70%)")
                 return False
                 
-            # Calculate Risk/Reward ratio
-            if stop_loss and take_profit and entry_price:
-                if signal == "BUY":
-                    risk = entry_price - stop_loss
-                    reward = take_profit - entry_price
-                else:  # SELL
-                    risk = stop_loss - entry_price
-                    reward = entry_price - take_profit
-                    
-                if risk <= 0:
-                    logger.debug("Trade blocked: Invalid risk calculation")
+            # 🔥 LEVEL 8: SMART R/R FILTER (LESS STRICT BUT STILL SAFE)
+            # Only check R/R if we have ATR-based values
+            if 'atr_value' in locals() and atr_value is not None:
+                # Use the rr_ratio from LEVEL 8 smart calculation
+                if rr_ratio < self._min_rr:
+                    logger.warning(f"❌ Trade blocked: R/R too low ({rr_ratio:.2f} < {self._min_rr})")
                     return False
+                logger.info(f"✅ Smart R/R check passed: {rr_ratio:.2f} >= {self._min_rr}")
+            else:
+                # Fallback R/R check for non-ATR trades
+                if stop_loss and take_profit and entry_price:
+                    if signal == "BUY":
+                        risk = entry_price - stop_loss
+                        reward = take_profit - entry_price
+                    else:  # SELL
+                        risk = stop_loss - entry_price
+                        reward = entry_price - take_profit
+                        
+                    if risk <= 0:
+                        logger.debug("Trade blocked: Invalid risk calculation")
+                        return False
+                        
+                    rr_ratio = reward / risk
+                    logger.info(f"🔧 Fallback R/R ratio for {symbol}: {rr_ratio:.2f} (risk: {risk:.5f}, reward: {reward:.5f})")
                     
-                rr_ratio = reward / risk
-                logger.info(f"🔧 R/R ratio for {symbol}: {rr_ratio:.2f} (risk: {risk:.5f}, reward: {reward:.5f})")
-                
-                # 🔧 RE-ENABLED FOR VPS PRODUCTION
-                if rr_ratio < 1.5:
-                    logger.info(f"Trade blocked: Low R/R ratio ({rr_ratio:.2f} < 1.5)")
-                    return False
+                    if rr_ratio < 1.5:
+                        logger.info(f"Trade blocked: Low R/R ratio ({rr_ratio:.2f} < 1.5)")
+                        return False
             
             # Check spread
             tick = mt5.symbol_info_tick(symbol)
