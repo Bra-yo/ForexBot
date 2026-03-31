@@ -703,39 +703,39 @@ Bot: Nyx AI Level 6
                     else:
                         min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
-                # Add safety buffer
-                buffer = max(min_stop, 10 * point)
+                # Add safety buffer - INCREASED FOR RELIABILITY
+                buffer = max(min_stop, 20 * point)  # Increased from 10x to 20x point
                 logger.info(f"🔧 Stop distance for {symbol}: min_stop={min_stop:.5f}, buffer={buffer:.5f}")
                 
                 if signal == "BUY":
                     if stop_loss is None:
                         sl = entry_price - buffer
                     if take_profit is None:
-                        tp = entry_price + (buffer * 2)  # 1:2 RR
+                        tp = entry_price + (buffer * 2.5)  # 1:2.5 RR for better success
                     
-                    # 🔧 ADDITIONAL VALIDATION: Ensure minimum distance
+                    # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
                     if abs(entry_price - sl) < min_stop:
-                        sl = entry_price - (min_stop * 2)
-                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (too close)")
+                        sl = entry_price - (min_stop * 3)  # Increased from 2x to 3x
+                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
                     
                     if abs(tp - entry_price) < min_stop:
-                        tp = entry_price + (min_stop * 2)
-                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (too close)")
+                        tp = entry_price + (min_stop * 3)  # Increased from 2x to 3x
+                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
                         
                 else:  # SELL
                     if stop_loss is None:
                         sl = entry_price + buffer
                     if take_profit is None:
-                        tp = entry_price - (buffer * 2)  # 1:2 RR
+                        tp = entry_price - (buffer * 2.5)  # 1:2.5 RR for better success
                     
-                    # 🔧 ADDITIONAL VALIDATION: Ensure minimum distance
+                    # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
                     if abs(sl - entry_price) < min_stop:
-                        sl = entry_price + (min_stop * 2)
-                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (too close)")
+                        sl = entry_price + (min_stop * 3)  # Increased from 2x to 3x
+                        logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
                     
                     if abs(entry_price - tp) < min_stop:
-                        tp = entry_price - (min_stop * 2)
-                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (too close)")
+                        tp = entry_price - (min_stop * 3)  # Increased from 2x to 3x
+                        logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
                 
                 # Update the final values
                 stop_loss = sl if stop_loss is None else stop_loss
@@ -761,9 +761,11 @@ Bot: Nyx AI Level 6
                     return False
                     
                 rr_ratio = reward / risk
+                logger.info(f"🔧 R/R ratio for {symbol}: {rr_ratio:.2f} (risk: {risk:.5f}, reward: {reward:.5f})")
+                
                 # 🔧 RE-ENABLED FOR VPS PRODUCTION
                 if rr_ratio < 1.5:
-                    logger.debug(f"Trade blocked: Low R/R ratio ({rr_ratio:.2f} < 1.5)")
+                    logger.info(f"Trade blocked: Low R/R ratio ({rr_ratio:.2f} < 1.5)")
                     return False
             
             # Check spread
@@ -776,10 +778,12 @@ Bot: Nyx AI Level 6
                     spread_pips = spread_points / symbol_info.point
                 else:
                     spread_pips = spread_points * 10000  # Fallback for 5-digit brokers
-                    
+
+                logger.info(f"🔧 Spread check for {symbol}: {spread_pips:.1f} pips")
+                
                 # 🔧 RE-ENABLED FOR VPS PRODUCTION
                 if spread_pips > 3.0:
-                    logger.debug(f"Trade blocked: High spread ({spread_pips:.1f} > 3.0 pips)")
+                    logger.info(f"Trade blocked: High spread ({spread_pips:.1f} > 3.0 pips)")
                     return False
                 else:
                     logger.info(f"✅ Spread check passed for {symbol}: {spread_pips:.1f} pips")
