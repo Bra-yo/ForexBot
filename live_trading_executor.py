@@ -128,7 +128,7 @@ class LiveTradingExecutor:
         self._min_rr = 1.3              # lower slightly to allow more trades
         self._min_sl_pips = 20          # reduced from 40 → more trades allowed
         self._use_atr_stops = True      # Enable ATR-based dynamic stops
-        self._max_spread_pips = 5.0      # Increased from 3.0 to 5.0 pips
+        self._max_spread_pips = 8.0      # Increased from 5.0 to 8.0 pips for more entries
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
@@ -436,7 +436,7 @@ Bot: Nyx AI Level 6
             
             # Try ATR-based validation first
             if self._use_atr_stops:
-                atr_value = self.get_atr_value(symbol)
+                atr_value = self.get_atr(symbol, mt5.TIMEFRAME_M15, 14)
                 if atr_value and atr_value > 0:
                     # Convert to scalar if needed
                     if hasattr(atr_value, '__len__') and len(atr_value) > 0:
