@@ -124,7 +124,7 @@ class LiveTradingExecutor:
         
         # 🔥 CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
         self._min_tp_pips = 15  # Minimum TP distance in pips
-        self._min_sl_multiplier = 2  # SL must be at least 2x broker minimum
+        self._min_sl_multiplier = 1.5  # SL must be at least 1.5x broker minimum (reduced from 2x)
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
@@ -434,8 +434,8 @@ Bot: Nyx AI Level 6
                 sl_distance = abs(entry_price - stop_loss)
                 sl_pips = sl_distance / point
                 
-                # Minimum SL must be 2x broker minimum (typically 20 pips)
-                min_sl_pips = 40  # 2x 20 pips
+                # Minimum SL must be 1.5x broker minimum (reduced from 2x)
+                min_sl_pips = 30  # 1.5x 20 pips = 30 pips (reduced from 40)
                 
                 if sl_pips < min_sl_pips:
                     return False, f"SL too close: {sl_pips:.1f} < {min_sl_pips} pips"
@@ -865,38 +865,38 @@ Bot: Nyx AI Level 6
                     else:
                         min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
-                # Add safety buffer - INCREASED FOR RELIABILITY
-                buffer = max(min_stop, 20 * point)  # Increased from 10x to 20x point
+                # Add safety buffer - OPTIMIZED FOR BETTER R/R RATIOS
+                buffer = max(min_stop, 15 * point)  # Reduced from 20x to 15x point for better R/R
                 logger.info(f"🔧 Stop distance for {symbol}: min_stop={min_stop:.5f}, buffer={buffer:.5f}")
                 
                 if signal == "BUY":
                     if stop_loss is None:
                         sl = entry_price - buffer
                     if take_profit is None:
-                        tp = entry_price + (buffer * 2.5)  # 1:2.5 RR for better success
+                        tp = entry_price + (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
                     
                     # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
                     if abs(entry_price - sl) < min_stop:
-                        sl = entry_price - (min_stop * 3)  # Increased from 2x to 3x
+                        sl = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
                         logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
                     
                     if abs(tp - entry_price) < min_stop:
-                        tp = entry_price + (min_stop * 3)  # Increased from 2x to 3x
+                        tp = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
                         logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
                         
                 else:  # SELL
                     if stop_loss is None:
                         sl = entry_price + buffer
                     if take_profit is None:
-                        tp = entry_price - (buffer * 2.5)  # 1:2.5 RR for better success
+                        tp = entry_price - (buffer * 2.0)  # 1:2 RR (reduced from 2.5x for better execution)
                     
                     # 🔧 FINAL FIX: Ensure minimum distance with larger multiplier
                     if abs(sl - entry_price) < min_stop:
-                        sl = entry_price + (min_stop * 3)  # Increased from 2x to 3x
+                        sl = entry_price + (min_stop * 2.5)  # Reduced from 3x to 2.5x
                         logger.info(f"🔧 Adjusted SL for {symbol}: {sl:.5f} (ensured minimum distance)")
                     
                     if abs(entry_price - tp) < min_stop:
-                        tp = entry_price - (min_stop * 3)  # Increased from 2x to 3x
+                        tp = entry_price - (min_stop * 2.5)  # Reduced from 3x to 2.5x
                         logger.info(f"🔧 Adjusted TP for {symbol}: {tp:.5f} (ensured minimum distance)")
                 
                 # Update the final values
