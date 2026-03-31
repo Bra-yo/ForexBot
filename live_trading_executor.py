@@ -126,11 +126,11 @@ class LiveTradingExecutor:
         
         # LEVEL 6: SMART TRADING HOURS
         self._asian_session_start = 0     # 00:00 UTC
-        self._asian_session_end = 7       # 07:00 UTC
+        self._asian_session_end = 8       # 07:59 UTC (extended to cover gap)
         self._london_session_start = 8    # 08:00 UTC
         self._london_session_end = 17     # 17:00 UTC
-        self._ny_session_start = 13       # 13:00 UTC
-        self._ny_session_end = 22         # 22:00 UTC
+        self._ny_session_start = 13        # 13:00 UTC
+        self._ny_session_end = 22          # 22:00 UTC
         
         # LEVEL 7: TRADE SCORING SYSTEM
         self._trade_scores = {}  # Track scores per symbol
