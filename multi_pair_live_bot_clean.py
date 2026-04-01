@@ -296,11 +296,26 @@ class MultiPairLiveBot:
             logger.error(f"Analysis cycle error: {e}")
             
         logger.info(f"Cycle completed: {trades_executed}/{trades_attempted} trades executed")
+        
+        # 🔥 LEVEL 9: Show analytics dashboard every 5 cycles
+        if hasattr(self, 'cycle_count'):
+            self.cycle_count += 1
+        else:
+            self.cycle_count = 1
+            
+        if self.cycle_count % 5 == 0:  # Every 5 cycles (5 minutes)
+            from integrated_analytics import analytics
+            analytics.print_quick_stats()
     
     def run_multi_pair_trading(self, cycle_seconds=60):  # 1 minute default
         """Start multi-pair live trading"""
         
         logger.info("Starting multi-pair trading...")
+        
+        # 🔥 LEVEL 9: Show initial analytics dashboard
+        from integrated_analytics import analytics
+        analytics.print_performance_dashboard()
+        
         self.is_running = True
         
         try:

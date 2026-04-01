@@ -18,6 +18,7 @@ from level3_intelligence import IntelligentTradeManager, AdaptiveLotSizer, Profi
 from advanced_telegram_assistant import AdvancedTelegramAssistant
 from trade_manager import TradeManager
 from risk_manager import RiskManager
+from integrated_analytics import analytics
 from signal_filter import SignalFilter
 from config import *
 from telegram_command_handler import TelegramCommandHandler  # LEVEL 7: Import command handler
@@ -1308,6 +1309,12 @@ Score: {trade_score:.3f}
                 # LEVEL 5: Clean logging - only important events
                 logger.info(f"✅ TRADE EXECUTED: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
                 
+                # 🔥 LEVEL 9: Log trade execution to analytics
+                analytics.log_trade_execution(
+                    symbol, signal, confidence, entry_price, 
+                    stop_loss, take_profit, final_lot_size, success=True
+                )
+                
                 # LEVEL 7: Journal the trade
                 self._journal_trade(symbol, signal, entry_price, stop_loss, take_profit, final_lot_size, "EXECUTED", datetime.now())
                 
@@ -1317,6 +1324,13 @@ Score: {trade_score:.3f}
             else:
                 # LEVEL 5: Safe execution - log error and continue
                 logger.warning(f"❌ Trade execution failed: {symbol} {signal}")
+                
+                # 🔥 LEVEL 9: Log failed trade to analytics
+                analytics.log_trade_execution(
+                    symbol, signal, confidence, entry_price, 
+                    stop_loss, take_profit, final_lot_size, success=False
+                )
+                
                 # Do NOT send Telegram for failed trades (LEVEL 5 anti-spam)
                 
                 return False  # 🔥 FIX 3: Return False on failed execution
