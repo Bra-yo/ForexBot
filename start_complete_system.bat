@@ -3,24 +3,17 @@ echo ========================================
 echo    BrayoForexBot - Complete System
 echo ========================================
 echo.
-echo This will start the dashboard which will:
-echo 1. Start the trading engine automatically
-echo 2. Show login page for MT5 connection
-echo 3. Pass credentials to engine securely
+echo This will show options:
+echo 1. Start trading engine + dashboard
+echo 2. Show analytics only (no bot)
+echo 3. Exit
 echo.
-echo Press any key to start the system...
+echo Option 2 is perfect if bot is running on VPS
+echo and you want to see analytics on your PC.
+echo.
+echo Press any key to show menu...
 pause >nul
 echo.
-echo 🌐 Starting Dashboard (will start engine automatically)...
-start "Dashboard" cmd /k "cd /d C:\Users\ESSENCE\CascadeProjects\windsurf-project\dashboard && python -m streamlit run mt5_signal.py --server.port 8505"
-
-echo.
-echo ✅ System Started!
-echo.
-echo Dashboard: Opening in browser at http://localhost:8505
-echo Trading Engine: Will start automatically after login
-echo.
-echo Close this window to keep dashboard running
-echo.
-
+echo 🌐 Loading System Menu...
+python start_complete_system.py
 pause
