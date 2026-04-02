@@ -1,6 +1,7 @@
 """
 BrayoForexBot Dashboard - Professional Trading Interface
 Real-time monitoring and control of AI-powered trading system
+LEVEL 10.1: ELITE TRADING WITH ANALYTICS
 """
 
 import streamlit as st
@@ -14,6 +15,7 @@ import threading
 from datetime import datetime, timedelta
 import sys
 import os
+import MetaTrader5 as mt5
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -80,15 +82,22 @@ class TradingDashboard:
         self.initialize_session_state()
         
         # Header
-        st.title("🤖 BrayoForexBot Dashboard")
+        st.title("🤖 BrayoForexBot Dashboard - LEVEL 10.1 ELITE")
         st.markdown("---")
         
         # Sidebar controls
         self.render_sidebar()
         
-        # Main content
-        if st.session_state.trading_engine:
+        # 🔥 LEVEL 10.1: PAGE ROUTING
+        current_page = st.session_state.get('current_page', '🏠 Trading Dashboard')
+        
+        # Main content based on page
+        if current_page == "📊 Analytics":
+            self.render_analytics_page()
+        elif st.session_state.trading_engine and current_page == "🏠 Trading Dashboard":
             self.render_main_dashboard()
+        elif current_page == "⚙️ Settings":
+            self.render_settings_page()
         else:
             self.render_setup_page()
     
@@ -97,11 +106,22 @@ class TradingDashboard:
         with st.sidebar:
             st.header("🎛️ Control Panel")
             
+            # 🔥 LEVEL 10.1: PAGE NAVIGATION
+            st.header("🧭 Navigation")
+            page = st.selectbox("Choose Page:", [
+                "🏠 Trading Dashboard", 
+                "📊 Analytics", 
+                "⚙️ Settings"
+            ])
+            st.session_state.current_page = page
+            
             # Connection Status
+            st.header("📡 Connection Status")
             self.render_connection_status()
             
             # Trading Controls
-            st.header("🚀 Trading Controls")
+            if page == "🏠 Trading Dashboard":
+                st.header("🚀 Trading Controls")
             
             if st.session_state.trading_engine:
                 # Start/Stop Trading
@@ -729,10 +749,167 @@ class TradingDashboard:
                 else:
                     st.warning("Trading stop requested - check MT5 connection")
             else:
-                st.warning("No trading engine to stop")
-            
+                st.error("Failed to stop trading")
+                    
         except Exception as e:
             st.error(f"Error stopping trading: {e}")
+    
+    # 🔥 LEVEL 10.1: ANALYTICS PAGE
+    def render_analytics_page(self):
+        """Render analytics page with 6-day performance"""
+        st.markdown("## 📊 6-Day Performance Analytics")
+        st.markdown("LEVEL 10.1: Elite Trading Performance Analysis")
+        
+        # Get trades from MT5
+        with st.spinner("Loading analytics data..."):
+            try:
+                if not mt5.initialize():
+                    st.error("Failed to connect to MT5")
+                    return
+                
+                end = datetime.now()
+                start = end - timedelta(days=6)
+                
+                # Get all deals in last 6 days
+                deals = mt5.history_deals_get(start, end)
+                
+                if deals is None:
+                    st.warning("No trade data found")
+                    return
+                
+                # Process trades
+                trades = []
+                for deal in deals:
+                    if deal.entry == 1 and deal.profit != 0:  # Only closed trades
+                        trades.append({
+                            "symbol": deal.symbol,
+                            "profit": deal.profit,
+                            "volume": deal.volume,
+                            "time": datetime.fromtimestamp(deal.time),
+                            "price": deal.price
+                        })
+                
+                if not trades:
+                    st.warning("No closed trades found in the last 6 days")
+                    return
+                
+                # Generate analytics
+                total_profit = sum(t["profit"] for t in trades)
+                wins = [t for t in trades if t["profit"] > 0]
+                losses = [t for t in trades if t["profit"] <= 0]
+                
+                win_rate = (len(wins) / len(trades)) * 100 if trades else 0
+                avg_win = sum(t["profit"] for t in wins) / len(wins) if wins else 0
+                avg_loss = sum(t["profit"] for t in losses) / len(losses) if losses else 0
+                
+                # Daily grouping
+                daily = {}
+                for t in trades:
+                    day = t["time"].date()
+                    daily.setdefault(day, {"profit": 0, "trades": 0})
+                    daily[day]["profit"] += t["profit"]
+                    daily[day]["trades"] += 1
+                
+                # Best and worst days
+                daily_profits = {day: data["profit"] for day, data in daily.items()}
+                best_day = max(daily_profits.items(), key=lambda x: x[1]) if daily_profits else ("No trades", 0)
+                worst_day = min(daily_profits.items(), key=lambda x: x[1]) if daily_profits else ("No trades", 0)
+                
+                # Display metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    profit_color = "normal" if total_profit >= 0 else "inverse"
+                    st.metric("💰 Total P&L", f"${total_profit:.2f}", delta_color=profit_color)
+                
+                with col2:
+                    st.metric("📈 Total Trades", len(trades))
+                
+                with col3:
+                    st.metric("🎯 Win Rate", f"{win_rate:.1f}%")
+                
+                with col4:
+                    profit_factor = abs(sum(t["profit"] for t in wins)) / abs(sum(t["profit"] for t in losses)) if losses else 0
+                    st.metric("📊 Profit Factor", f"{profit_factor:.2f}")
+                
+                # Additional metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("🏆 Avg Win", f"${avg_win:.2f}")
+                
+                with col2:
+                    st.metric("💀 Avg Loss", f"${avg_loss:.2f}")
+                
+                with col3:
+                    st.metric("🔥 Total Wins", len(wins))
+                
+                with col4:
+                    st.metric("❌ Total Losses", len(losses))
+                
+                # Best/Worst days
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("### 🏆 Best Day")
+                    st.markdown(f"**{best_day[0].strftime('%Y-%m-%d')}**: ${best_day[1]:.2f}")
+                
+                with col2:
+                    st.markdown("### 💀 Worst Day")
+                    st.markdown(f"**{worst_day[0].strftime('%Y-%m-%d')}**: ${worst_day[1]:.2f}")
+                
+                # Charts
+                if daily:
+                    st.markdown("### 📈 Daily Performance")
+                    
+                    # Prepare data for charts
+                    dates = [day.strftime('%Y-%m-%d') for day in daily.keys()]
+                    profits = [data["profit"] for data in daily.values()]
+                    trade_counts = [data["trades"] for data in daily.values()]
+                    
+                    # Daily profit chart
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("#### Daily Profit/Loss")
+                        profit_df = pd.DataFrame({
+                            'Date': dates,
+                            'Profit': profits
+                        })
+                        st.bar_chart(profit_df.set_index('Date'))
+                    
+                    with col2:
+                        st.markdown("#### Daily Trade Count")
+                        trades_df = pd.DataFrame({
+                            'Date': dates,
+                            'Trades': trade_counts
+                        })
+                        st.bar_chart(trades_df.set_index('Date'))
+                
+                # Recent trades table
+                if trades:
+                    st.markdown("### 📋 Recent Trades")
+                    
+                    # Convert trades to DataFrame
+                    recent_trades = trades[-10:]  # Show last 10 trades
+                    trades_df = pd.DataFrame(recent_trades)
+                    trades_df['Time'] = trades_df['time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                    trades_df['Profit'] = trades_df['profit'].round(2)
+                    
+                    # Format for display
+                    display_df = trades_df[['Time', 'Symbol', 'Volume', 'Price', 'Profit']].copy()
+                    display_df.columns = ['Time', 'Symbol', 'Volume', 'Price', 'Profit']
+                    
+                    # Color code profits
+                    def color_profit(val):
+                        color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+                        return f'color: {color}'
+                    
+                    styled_df = display_df.style.applymap(color_profit, subset=['Profit'])
+                    st.dataframe(styled_df, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"Error loading analytics: {e}")
 
 # Main application
 def main():

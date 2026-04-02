@@ -1,0 +1,5 @@
+{"timestamp": "2026-04-01 20:38:59.735153", "symbol": "EURJPY", "signal": "BUY", "confidence": 83.51815678335356, "entry_price": 183.985, "sl": 183.83628571428574, "tp": 184.20807142857143, "lot_size": 0.02, "success": true}
+{"timestamp": "2026-04-01 20:45:59.728045", "symbol": "NZDUSD", "signal": "BUY", "confidence": 70.88339789433414, "entry_price": 0.57642, "sl": 0.5755864285714286, "tp": 0.5776703571428572, "lot_size": 0.01, "success": true}
+{"timestamp": "2026-04-01 21:00:59.849583", "symbol": "EURUSD", "signal": "BUY", "confidence": 71.28132108465766, "entry_price": 1.15911, "sl": 1.1576517857142858, "tp": 1.1612973214285716, "lot_size": 0.01, "success": true}
+{"timestamp": "2026-04-01 21:33:59.896092", "symbol": "EURJPY", "signal": "BUY", "confidence": 74.31218010010275, "entry_price": 183.836, "sl": 183.69789285714288, "tp": 184.0431607142857, "lot_size": 0.01, "success": true}
+{"timestamp": "2026-04-01 21:46:59.776212", "symbol": "USDCAD", "signal": "SELL", "confidence": 82.20292820147372, "entry_price": 1.38919, "sl": 1.3901499999999998, "tp": 1.38775, "lot_size": 0.02, "success": true}
