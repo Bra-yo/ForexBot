@@ -207,20 +207,46 @@ def render_analytics_page():
         
         # Convert trades to DataFrame
         trades_df = pd.DataFrame(trades[-10:])  # Show last 10 trades
-        trades_df['Time'] = trades_df['time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        trades_df['Profit'] = trades_df['profit'].round(2)
         
-        # Format for display
-        display_df = trades_df[['Time', 'Symbol', 'Volume', 'Price', 'Profit']].copy()
-        display_df.columns = ['Time', 'Symbol', 'Volume', 'Price', 'Profit']
+        # Check what columns we actually have
+        available_columns = trades_df.columns.tolist()
+        st.write(f"Debug: Available columns: {available_columns}")
         
-        # Color code profits
-        def color_profit(val):
-            color = 'green' if val > 0 else 'red' if val < 0 else 'black'
-            return f'color: {color}'
+        # Create display data with available columns only
+        display_data = []
+        for trade in trades[-10:]:
+            try:
+                display_data.append({
+                    'Time': trade.get('time', 'N/A'),
+                    'Symbol': trade.get('symbol', 'N/A'),
+                    'Volume': trade.get('volume', 'N/A'),
+                    'Price': trade.get('price', 'N/A'),
+                    'Profit': trade.get('profit', 0)
+                })
+            except Exception as e:
+                st.warning(f"Error processing trade: {e}")
+                continue
         
-        styled_df = display_df.style.applymap(color_profit, subset=['Profit'])
-        st.dataframe(styled_df, use_container_width=True)
+        if display_data:
+            display_df = pd.DataFrame(display_data)
+            
+            # Format Time and Profit columns
+            if 'Time' in display_df.columns:
+                display_df['Time'] = pd.to_datetime(display_df['Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            if 'Profit' in display_df.columns:
+                display_df['Profit'] = pd.to_numeric(display_df['Profit'], errors='coerce').round(2)
+            
+            # Color code profits
+            def color_profit(val):
+                if pd.isna(val):
+                    return 'color: black'
+                color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+                return f'color: {color}'
+            
+            styled_df = display_df.style.applymap(color_profit, subset=['Profit'])
+            st.dataframe(styled_df, use_container_width=True)
+        else:
+            st.warning("No valid trade data to display")
 
 # ============ SHARED STATE READER ============
 def read_trading_state():
