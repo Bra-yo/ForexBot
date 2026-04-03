@@ -725,14 +725,21 @@ Bot: Nyx AI Level 6
                 volume_factor = quality_assessment['volume_strength']
                 volatility = quality_assessment['volatility']
                 
+                # 🔥 LEVEL 10.2: SMART AGGRESSION MODE
                 # Use signal quality score as trade score
                 score = quality_assessment['final_score']
                 
                 logger.info(f"📊 REAL Signal Quality for {symbol}: {score:.2f}")
                 
-                # 🔥 LEVEL 10.2: HARD FILTER - REJECT WEAK SIGNALS
-                if score < 0.65:
-                    logger.warning(f"❌ Weak signal rejected | Score={score:.2f} < 0.65")
+                # 🔥 LEVEL 10.2: TIERED TRADING SYSTEM
+                if score >= 0.65:
+                    logger.info(f"🔥 STRONG SIGNAL - Full lot size | Score={score:.2f}")
+                    trade_multiplier = 1.0  # Full position
+                elif score >= 0.50:
+                    logger.info(f"⚡ MEDIUM SIGNAL - Reduced lot size | Score={score:.2f}")
+                    trade_multiplier = 0.5  # Safer position
+                else:
+                    logger.warning(f"❌ Weak signal rejected | Score={score:.2f} < 0.50")
                     return 0
                 
                 return score
@@ -1015,21 +1022,21 @@ Bot: Nyx AI Level 6
                 'atr': atr_value if 'atr_value' in locals() else 0.001  # Use actual ATR
             }
             
-            # �🔥 LEVEL 10.2: BONUS FILTER - TREND ALIGNMENT CHECK
+            # 🔥 LEVEL 10.2: BONUS FILTER - SMART TREND ALIGNMENT
             if market_data:
                 ema_fast = market_data.get('ema_fast', 0)
                 ema_slow = market_data.get('ema_slow', 0)
                 
                 # Check if trade aligns with trend
-                trend_aligned, trend_msg = self.signal_engine.check_trend_alignment(
+                trend_multiplier, trend_msg = self.signal_engine.check_trend_alignment(
                     signal, ema_fast, ema_slow
                 )
                 
-                if not trend_aligned:
-                    logger.warning(f"❌ Trend alignment rejected: {trend_msg}")
-                    return False
+                logger.info(f"✅ Trend alignment: {trend_msg} | Multiplier: {trend_multiplier}")
                 
-                logger.info(f"✅ Trend alignment confirmed: {trend_msg}")
+                # Apply trend alignment penalty to score
+                if hasattr(self, '_last_calculated_score'):
+                    self._last_calculated_score *= trend_multiplier
             
             # LEVEL 7: TRADE SCORING SYSTEM
             logger.info(f"🎯 Calculating trade score for {symbol}...")

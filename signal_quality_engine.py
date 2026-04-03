@@ -32,12 +32,17 @@ class SignalQualityEngine:
     def calculate_momentum(self, rsi):
         """Calculate momentum strength based on RSI extremes"""
         try:
-            if rsi > 65 or rsi < 35:
+            # 🔥 LEVEL 10.2: MORE DYNAMIC MOMENTUM
+            if rsi > 70 or rsi < 30:
                 return 1.0
+            elif rsi > 65 or rsi < 35:
+                return 0.8
             elif rsi > 60 or rsi < 40:
-                return 0.7
+                return 0.6
+            elif rsi > 55 or rsi < 45:
+                return 0.5
             else:
-                return 0.4
+                return 0.3  # Only very neutral RSI gets low score
                 
         except Exception as e:
             self.logger.error(f"Error calculating momentum: {e}")
@@ -60,25 +65,31 @@ class SignalQualityEngine:
     def calculate_volatility(self, atr):
         """Calculate volatility strength based on ATR"""
         try:
-            if atr > 0.002:
+            # 🔥 LEVEL 10.2: MORE DYNAMIC VOLATILITY
+            if atr > 0.003:
                 return 1.0
+            elif atr > 0.002:
+                return 0.8
+            elif atr > 0.0015:
+                return 0.6
             elif atr > 0.001:
-                return 0.7
+                return 0.5
             else:
-                return 0.4
+                return 0.3  # Very low volatility gets low score
                 
         except Exception as e:
             self.logger.error(f"Error calculating volatility: {e}")
             return 0.3
     
     def final_score(self, trend, momentum, volume, volatility):
-        """Calculate final weighted signal quality score"""
+        """LEVEL 10.2: Calculate final weighted signal quality score"""
         try:
+            # 🔥 LEVEL 10.2: BOOSTED DYNAMICS
             score = (
-                trend * 0.35 +      # Trend is most important (35%)
-                momentum * 0.25 +    # Momentum second (25%)
-                volume * 0.20 +      # Volume confirmation (20%)
-                volatility * 0.20    # Volatility for movement potential (20%)
+                trend * 0.30 +      # Trend (30%)
+                momentum * 0.30 +    # Momentum (30%) - increased from 25%
+                volume * 0.20 +      # Volume (20%)
+                volatility * 0.20    # Volatility (20%)
             )
             return round(score, 2)
             
@@ -127,16 +138,16 @@ class SignalQualityEngine:
             }
     
     def check_trend_alignment(self, trade_type, ema_fast, ema_slow):
-        """BONUS FILTER: Check if trade aligns with trend direction"""
+        """LEVEL 10.2: Smart trend alignment - penalize instead of reject"""
         try:
+            # 🔥 LEVEL 10.2: SMART TREND ALIGNMENT
             if trade_type.upper() == "BUY" and ema_fast < ema_slow:
-                return False, "BUY signal against downtrend"
-            
+                return 0.9, "BUY signal against downtrend - penalized"  # Penalize, not reject
             if trade_type.upper() == "SELL" and ema_fast > ema_slow:
-                return False, "SELL signal against uptrend"
+                return 0.9, "SELL signal against uptrend - penalized"  # Penalize, not reject
             
-            return True, "Trend alignment confirmed"
+            return 1.0, "Trend alignment confirmed"
             
         except Exception as e:
             self.logger.error(f"Error checking trend alignment: {e}")
-            return True, "Trend check failed - allowing trade"
+            return 1.0, "Trend check failed - allowing trade"
