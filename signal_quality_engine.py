@@ -65,21 +65,21 @@ class SignalQualityEngine:
     def calculate_volatility(self, atr):
         """Calculate volatility strength based on ATR"""
         try:
-            # 🔥 LEVEL 10.2: MORE DYNAMIC VOLATILITY
+            # 🔥 LEVEL 10.2: LESS HARSH VOLATILITY SCORING
             if atr > 0.003:
                 return 1.0
             elif atr > 0.002:
-                return 0.8
+                return 0.9  # Increased from 0.8
             elif atr > 0.0015:
-                return 0.6
+                return 0.8  # Increased from 0.6
             elif atr > 0.001:
-                return 0.5
+                return 0.7  # Increased from 0.5
             else:
-                return 0.3  # Very low volatility gets low score
+                return 0.5  # Increased from 0.3 - don't kill trades completely
                 
         except Exception as e:
             self.logger.error(f"Error calculating volatility: {e}")
-            return 0.3
+            return 0.5
     
     def final_score(self, trend, momentum, volume, volatility):
         """LEVEL 10.2: Calculate final weighted signal quality score"""
@@ -138,13 +138,13 @@ class SignalQualityEngine:
             }
     
     def check_trend_alignment(self, trade_type, ema_fast, ema_slow):
-        """LEVEL 10.2: Smart trend alignment - penalize instead of reject"""
+        """LEVEL 10.2: Smart trend alignment - reduced penalty"""
         try:
-            # 🔥 LEVEL 10.2: SMART TREND ALIGNMENT
+            # 🔥 LEVEL 10.2: REDUCED TREND PENALTY
             if trade_type.upper() == "BUY" and ema_fast < ema_slow:
-                return 0.9, "BUY signal against downtrend - penalized"  # Penalize, not reject
+                return 0.95, "BUY signal against downtrend - minor penalty"  # Reduced penalty from 0.9 to 0.95
             if trade_type.upper() == "SELL" and ema_fast > ema_slow:
-                return 0.9, "SELL signal against uptrend - penalized"  # Penalize, not reject
+                return 0.95, "SELL signal against uptrend - minor penalty"  # Reduced penalty from 0.9 to 0.95
             
             return 1.0, "Trend alignment confirmed"
             

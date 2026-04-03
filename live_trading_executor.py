@@ -578,9 +578,10 @@ Bot: Nyx AI Level 6
         LEVEL 8: Smart SL/TP using ATR + safety rules
         """
         
-        # 📏 Convert ATR to price movement
+        # � LEVEL 10.2: IMPROVED SL/TP CALCULATION
+        # � Convert ATR to price movement with better R/R
         sl_distance = atr_value * self._atr_multiplier_sl
-        tp_distance = atr_value * self._atr_multiplier_tp
+        tp_distance = atr_value * 3.0  # 🔥 INCREASED from fixed 2.0 to 3.0 for better R/R
         
         # 🛡️ Ensure minimum SL (prevents SL too close issue)
         min_sl_price = self._min_sl_pips * point
@@ -731,15 +732,15 @@ Bot: Nyx AI Level 6
                 
                 logger.info(f"📊 REAL Signal Quality for {symbol}: {score:.2f}")
                 
-                # 🔥 LEVEL 10.2: TIERED TRADING SYSTEM
+                # 🔥 LEVEL 10.2: TIERED TRADING SYSTEM (LOWERED THRESHOLD)
                 if score >= 0.65:
                     logger.info(f"🔥 STRONG SIGNAL - Full lot size | Score={score:.2f}")
                     trade_multiplier = 1.0  # Full position
-                elif score >= 0.50:
+                elif score >= 0.45:  # 🔥 LOWERED from 0.50 to 0.45
                     logger.info(f"⚡ MEDIUM SIGNAL - Reduced lot size | Score={score:.2f}")
                     trade_multiplier = 0.5  # Safer position
                 else:
-                    logger.warning(f"❌ Weak signal rejected | Score={score:.2f} < 0.50")
+                    logger.warning(f"❌ Weak signal rejected | Score={score:.2f} < 0.45")
                     return 0
                 
                 return score
@@ -1112,14 +1113,20 @@ Bot: Nyx AI Level 6
                 logger.debug(f"🧠 ELITE: Trade blocked: Low confidence ({confidence:.1f}% < {elite_config.MIN_CONFIDENCE * 100}%)")
                 return False
                 
-            # 🔥 LEVEL 10.1: ELITE R/R FILTER
-            # Only check R/R if we have ATR-based values
+            # 🔥 LEVEL 10.2: DYNAMIC R/R REQUIREMENTS
+            # Calculate dynamic minimum R/R based on signal strength
+            if trade_score >= 0.70:
+                min_rr = 1.5  # Strong signals need less R/R
+            elif trade_score >= 0.55:
+                min_rr = 1.7  # Medium signals need moderate R/R
+            else:
+                min_rr = 2.0  # Weak signals need high R/R
+            
+            # 🔥 LEVEL 10.1: Enhanced R/R filter with dynamic threshold
             if 'atr_value' in locals() and atr_value is not None:
-                # Use the rr_ratio from LEVEL 8 smart calculation
-                if rr_ratio < elite_config.MIN_RR_RATIO:
-                    logger.warning(f"🧠 ELITE: Trade blocked: R/R too low ({rr_ratio:.2f} < {elite_config.MIN_RR_RATIO})")
+                if rr_ratio < min_rr:
+                    logger.warning(f"🧠 ELITE: Trade blocked: R/R too low ({rr_ratio:.2f} < {min_rr}) | Score: {trade_score:.2f}")
                     return False
-                logger.info(f"✅ Elite R/R check passed: {rr_ratio:.2f} >= {elite_config.MIN_RR_RATIO}")
             else:
                 # Fallback R/R check for non-ATR trades
                 if stop_loss and take_profit and entry_price:
