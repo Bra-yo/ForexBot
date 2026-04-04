@@ -60,13 +60,24 @@ class RiskManager:
             
             # Get ATR for comparison
             atr_value = self.get_atr_value(symbol)
-            # 🔧 FIX: Handle array/scalar ATR values
+            # 🔧 LEVEL 10.2: ROBUST ARRAY HANDLING
             if atr_value is not None:
                 # Convert to scalar if it's an array
-                if hasattr(atr_value, '__len__') and len(atr_value) > 0:
-                    atr_value = atr_value[-1]  # Use last value
-                elif hasattr(atr_value, 'item'):
-                    atr_value = atr_value.item()  # Convert numpy scalar
+                try:
+                    if hasattr(atr_value, '__len__') and len(atr_value) > 0:
+                        atr_value = atr_value[-1]  # Use last value
+                    elif hasattr(atr_value, 'item'):
+                        atr_value = atr_value.item()  # Convert numpy scalar
+                    elif hasattr(atr_value, 'any'):  # numpy array
+                        if atr_value.any():  # Use .any() instead of direct boolean
+                            atr_value = float(atr_value[-1])
+                        else:
+                            atr_value = 0.0
+                    else:
+                        atr_value = float(atr_value)  # Force convert to float
+                except (ValueError, TypeError, AttributeError) as e:
+                    print(f"ATR conversion error: {e}")
+                    atr_value = 0.001  # Safe fallback
                     
                 if atr_value > 0:  # Ensure scalar and valid
                     # Check if current range > 2× ATR (news spike)

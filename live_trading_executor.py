@@ -22,6 +22,7 @@ from risk_manager import RiskManager
 from integrated_analytics import analytics
 from signal_filter import SignalFilter
 from signal_quality_engine import SignalQualityEngine  # LEVEL 10.2: Import signal quality engine
+from adaptive_threshold_engine import AdaptiveThresholdEngine
 from config import *
 from telegram_command_handler import TelegramCommandHandler  # LEVEL 7: Import command handler
 
@@ -144,6 +145,18 @@ class LiveTradingExecutor:
         # 🔧 LEVEL 10.2: INITIALIZE SIGNAL QUALITY ENGINE
         self.signal_engine = SignalQualityEngine()
         
+        # 🔧 LEVEL 10.2: INITIALIZE ADAPTIVE THRESHOLD ENGINE
+        self.adaptive_threshold = AdaptiveThresholdEngine()  # 🧠 INTELLIGENCE SYSTEM
+        
+        # 🔧 LEVEL 10.2: INITIALIZE RISK MANAGER
+        self.risk_manager = RiskManager()  # CRITICAL FIX: Missing risk_manager
+        
+        # 🔧 LEVEL 10.2: INITIALIZE ADAPTIVE COMPONENTS
+        self.adaptive_sizer = AdaptiveLotSizer()  # CRITICAL FIX: Missing adaptive_sizer
+        self.profit_manager = ProfitTargetManager()  # CRITICAL FIX: Missing profit_manager
+        self.profit_targets = ProfitTargetManager()  # CRITICAL FIX: Missing profit_targets (alias)
+        self.trade_manager = TradeManager()  # CRITICAL FIX: Missing trade_manager
+        
         # PART 2: TELEGRAM ANTI-SPAM SYSTEM
         self._telegram_last_sent = {}  # Track last message time per symbol
         self._telegram_rate_limit = 120  # 2 minutes in seconds
@@ -213,7 +226,7 @@ class LiveTradingExecutor:
         
         # LEVEL 7: TRADE SCORING SYSTEM
         self._trade_scores = {}  # Track scores per symbol
-        self._score_threshold = 0.4  # TEMPORARY FIX: Lower threshold to 0.4 to allow trades
+        # 🔥 REMOVED OLD THRESHOLD: Now handled by adaptive system
         
         # LEVEL 7: PERFORMANCE MEMORY
         self._performance_memory = {}  # Track wins/losses per symbol
@@ -648,23 +661,72 @@ Bot: Nyx AI Level 6
         logger.info(f"🔄 Cycle updated for {symbol}")
     
     def _update_loss_tracking(self, symbol, was_profitable):
-        """Update loss tracking for consecutive losses"""
-        if was_profitable:
-            # Reset on profitable trade
-            if symbol in self._consecutive_losses:
-                del self._consecutive_losses[symbol]
-            logger.info(f"✅ Profitable trade for {symbol} - loss streak reset")
-        else:
-            # Increment loss count
-            self._consecutive_losses[symbol] = self._consecutive_losses.get(symbol, 0) + 1
-            loss_count = self._consecutive_losses[symbol]
+        """Update loss tracking and adaptive threshold learning"""
+        try:
+            if symbol not in self._consecutive_losses:
+                self._consecutive_losses[symbol] = 0
             
+            if was_profitable:
+                self._consecutive_losses[symbol] = 0
+            else:
+                self._consecutive_losses[symbol] += 1
+            
+            loss_count = self._consecutive_losses[symbol]
             logger.warning(f"❌ Loss #{loss_count} for {symbol}")
             
             # Start cooldown after 2 consecutive losses
             if loss_count >= 2:
                 self._loss_cooldown_time[symbol] = time.time()
                 logger.warning(f"🚨 Loss cooldown activated for {symbol} (30 minutes)")
+            
+            # 🔥 LEVEL 10.2: ADAPTIVE THRESHOLD LEARNING
+            # Get current open positions to calculate profit
+            positions = mt5.positions_get()
+            if positions:
+                for position in positions:
+                    if position.symbol == symbol:
+                        profit = position.profit
+                        # Update adaptive threshold with actual profit
+                        self.adaptive_threshold.add_trade_result(symbol, profit, 0.0)  # Score will be tracked separately
+                        logger.info(f"🧠 Adaptive learning: {symbol} profit ${profit:+.2f} recorded")
+                        break
+            
+        except Exception as e:
+            logger.error(f"Error updating loss tracking: {e}")
+    
+    def get_adaptive_status(self):
+        """🧠 Get current adaptive threshold status"""
+        try:
+            summary = self.adaptive_threshold.get_performance_summary()
+            
+            status_msg = f"""
+🧠 ADAPTIVE THRESHOLD STATUS
+   Total Trades: {summary['total_trades']}
+   Recent Trades: {summary['recent_trades']}
+   Win Rate: {summary['win_rate']:.2f}
+   Total P&L: ${summary['total_pnl']:+.2f}
+   Daily P&L: ${summary['daily_pnl']:+.2f}
+   Current Drawdown: {summary['current_drawdown']:.1f}%
+   Current Threshold: {summary['current_threshold']:.3f}
+   Base Threshold: {summary['base_threshold']:.3f}
+   Mode: {summary['mode']}
+   Last Update: {summary['last_update']}
+            """.strip()
+            
+            logger.info(status_msg)
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Error getting adaptive status: {e}")
+            return None
+    
+    def reset_daily_adaptive_metrics(self):
+        """Reset daily adaptive metrics"""
+        try:
+            self.adaptive_threshold.reset_daily_metrics()
+            logger.info("📅 Daily adaptive metrics reset")
+        except Exception as e:
+            logger.error(f"Error resetting daily metrics: {e}")
     
     def _update_profit_tracking(self):
         """LEVEL 6: Update daily profit and send periodic updates"""
@@ -726,22 +788,36 @@ Bot: Nyx AI Level 6
                 volume_factor = quality_assessment['volume_strength']
                 volatility = quality_assessment['volatility']
                 
-                # 🔥 LEVEL 10.2: SMART AGGRESSION MODE
+                # 🔥 LEVEL 10.2: ADAPTIVE INTELLIGENCE MODE
                 # Use signal quality score as trade score
                 score = quality_assessment['final_score']
                 
                 logger.info(f"📊 REAL Signal Quality for {symbol}: {score:.2f}")
                 
-                # 🔥 LEVEL 10.2: TIERED TRADING SYSTEM (LOWERED THRESHOLD)
-                if score >= 0.65:
-                    logger.info(f"🔥 STRONG SIGNAL - Full lot size | Score={score:.2f}")
+                # 🧠 INTELLIGENT THRESHOLD DECISION
+                should_trade, decision_msg = self.adaptive_threshold.should_trade(score)
+                logger.info(f"🧠 Adaptive Decision: {decision_msg}")
+                
+                if not should_trade:
+                    logger.warning(f"❌ Adaptive threshold rejected | Score={score:.2f}")
+                    return 0  # 🔥 CRITICAL: Return 0, but DON'T modify score value
+                
+                # 🎯 DYNAMIC POSITION SIZING BASED ON PERFORMANCE
+                performance_summary = self.adaptive_threshold.get_performance_summary()
+                current_mode = performance_summary['mode']
+                
+                if current_mode == "Selective":
+                    logger.info(f"🛡️ SELECTIVE MODE - Reduced lot size | Score={score:.2f}")
+                    trade_multiplier = 0.7  # Safer position
+                elif current_mode == "Aggressive":
+                    logger.info(f"⚡ AGGRESSIVE MODE - Full lot size | Score={score:.2f}")
                     trade_multiplier = 1.0  # Full position
-                elif score >= 0.45:  # 🔥 LOWERED from 0.50 to 0.45
-                    logger.info(f"⚡ MEDIUM SIGNAL - Reduced lot size | Score={score:.2f}")
-                    trade_multiplier = 0.5  # Safer position
                 else:
-                    logger.warning(f"❌ Weak signal rejected | Score={score:.2f} < 0.45")
-                    return 0
+                    logger.info(f"🔥 NORMAL MODE - Standard lot size | Score={score:.2f}")
+                    trade_multiplier = 0.85  # Standard position
+                
+                # 📊 Register trade for adaptive learning
+                self.adaptive_threshold.add_trade_result(symbol, 0.0, score)  # Will update with actual profit later
                 
                 return score
             else:
@@ -1023,31 +1099,29 @@ Bot: Nyx AI Level 6
                 'atr': atr_value if 'atr_value' in locals() else 0.001  # Use actual ATR
             }
             
-            # 🔥 LEVEL 10.2: BONUS FILTER - SMART TREND ALIGNMENT
+            # 🔥 LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND
             if market_data:
                 ema_fast = market_data.get('ema_fast', 0)
                 ema_slow = market_data.get('ema_slow', 0)
                 
                 # Check if trade aligns with trend
-                trend_multiplier, trend_msg = self.signal_engine.check_trend_alignment(
+                trend_aligned, trend_msg = self.signal_engine.check_trend_alignment(
                     signal, ema_fast, ema_slow
                 )
                 
-                logger.info(f"✅ Trend alignment: {trend_msg} | Multiplier: {trend_multiplier}")
+                if not trend_aligned:
+                    logger.warning(f"❌ Trend alignment rejected: {trend_msg}")
+                    return False
                 
-                # Apply trend alignment penalty to score
-                if hasattr(self, '_last_calculated_score'):
-                    self._last_calculated_score *= trend_multiplier
+                logger.info(f"✅ Trend alignment: {trend_msg}")
             
             # LEVEL 7: TRADE SCORING SYSTEM
             logger.info(f"🎯 Calculating trade score for {symbol}...")
             
             trade_score = self._calculate_trade_score(symbol, confidence, market_data)
-            logger.info(f"📊 Trade score for {symbol}: {trade_score:.3f} (threshold: {self._score_threshold})")
-            if trade_score <= self._score_threshold:
-                logger.info(f"❌ Trade blocked: Low score ({trade_score:.3f} <= {self._score_threshold})")
-                return False
+            logger.info(f"📊 Trade score for {symbol}: {trade_score:.3f}")
             
+            # 🔥 REMOVED OLD THRESHOLD CHECK: Adaptive system handles this now
             logger.info(f"✅ Passed all checks for {symbol} - Score: {trade_score:.3f}")
             
             # Allow None for SL/TP - they will be calculated internally
@@ -1200,8 +1274,8 @@ Bot: Nyx AI Level 6
                 logger.info(f"✅ No trade memory for {symbol} - memory cleared")
             
             # LEVEL 5: 3. Only trade HIGH QUALITY signals
-            if confidence < 70.0:  # TEMPORARY FIX: Lower from 80% to 70%
-                logger.info(f"Trade blocked: Low confidence ({confidence:.1f}% < 70%)")
+            if confidence < 60.0:  # 🔥 LOWERED from 70% to 60% - LESS RESTRICTIVE
+                logger.info(f"Trade blocked: Low confidence ({confidence:.1f}% < 60%)")
                 return False
             
             logger.info(f"✅ Passed Level 5 checks for {symbol}")

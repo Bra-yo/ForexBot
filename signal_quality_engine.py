@@ -138,16 +138,16 @@ class SignalQualityEngine:
             }
     
     def check_trend_alignment(self, trade_type, ema_fast, ema_slow):
-        """LEVEL 10.2: Smart trend alignment - reduced penalty"""
+        """LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND"""
         try:
-            # 🔥 LEVEL 10.2: REDUCED TREND PENALTY
+            # 🔥 LEVEL 10.2: TREND IS KING - NO COMPROMISE
             if trade_type.upper() == "BUY" and ema_fast < ema_slow:
-                return 0.95, "BUY signal against downtrend - minor penalty"  # Reduced penalty from 0.9 to 0.95
+                return False, "❌ REJECTED: BUY signal against downtrend - TREND IS KING"
             if trade_type.upper() == "SELL" and ema_fast > ema_slow:
-                return 0.95, "SELL signal against uptrend - minor penalty"  # Reduced penalty from 0.9 to 0.95
+                return False, "❌ REJECTED: SELL signal against uptrend - TREND IS KING"
             
-            return 1.0, "Trend alignment confirmed"
+            return True, "✅ Trend alignment confirmed - TREND IS KING"
             
         except Exception as e:
             self.logger.error(f"Error checking trend alignment: {e}")
-            return 1.0, "Trend check failed - allowing trade"
+            return True, "Trend check failed - allowing trade"
