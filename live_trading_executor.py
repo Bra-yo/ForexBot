@@ -7,6 +7,7 @@ LEVEL 10.1: ELITE TRADING SYSTEM
 import logging
 import time
 from datetime import datetime
+import MetaTrader5 as mt5
 from signal_quality_engine import SignalQualityEngine
 from adaptive_threshold_engine import AdaptiveThresholdEngine
 from adaptive_confidence_system import AdaptiveConfidenceSystem
