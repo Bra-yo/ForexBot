@@ -9,7 +9,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Safety confirmation
-print("\n🛡️  **NYX AI SAFETY CHECK**")
+print("\n[SAFETY CHECK] NYX AI SAFETY CHECK")
 print("   [OK] MT5 Terminal is running")
 print("   [OK] Account is DEMO (not real money)")
 print("   [OK] Lot size is capped at 0.5")
