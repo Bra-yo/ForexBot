@@ -1101,6 +1101,24 @@ Bot: Nyx AI Level 6
         
             logger.info(f"✅ Session check passed for {symbol}")
             
+            # MARKET OPEN CHECK - Verify market is actually open
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is None or not symbol_info.visible:
+                logger.error(f"Symbol not available: {symbol}")
+                return False
+            
+            if symbol_info.trade_mode != mt5.SYMBOL_TRADE_MODE_FULL:
+                logger.error(f"Market not open for trading: {symbol}")
+                return False
+            
+            # Check for live market data
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is None or tick.bid == 0 or tick.ask == 0:
+                logger.error(f"No live market data - market likely closed: {symbol}")
+                return False
+            
+            logger.info(f"Market open check passed for {symbol}")
+            
             # LEVEL 6: Check drawdown protection
             if self._check_drawdown_protection():
                 logger.info(f"❌ Drawdown protection triggered for {symbol}")
@@ -1188,9 +1206,9 @@ Bot: Nyx AI Level 6
                 logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | REJECTED ({decision_msg})")
                 return False  # 🔥 CRITICAL: Return False, preserve trade_score
             
-            # � IMPROVED LOG: Clear execution details
-            logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | EXECUTED")
-            logger.info(f"✅ Passed all checks for {symbol} - Score: {trade_score:.3f}")
+            # � IMPROVED LOG: Clear execution details (pending MT5 confirmation)
+            logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | ATTEMPTING")
+            logger.info(f"Passed all checks for {symbol} - Score: {trade_score:.3f}")
             
             # Allow None for SL/TP - they will be calculated internally
             
@@ -1519,24 +1537,29 @@ Bot: Nyx AI Level 6
                     take_profit = None  # Use original calculation
             
             # EXECUTE TRADE
-            logger.info(f"🔧 About to call place_trade for {symbol}...")
+            logger.info(f"About to call place_trade for {symbol}...")
             result = place_trade(
                 symbol=symbol,
                 signal=signal,
-                lot=final_lot_size,  # LEVEL 7: Use dynamic lot size
+                lot=final_lot_size,
                 sl=stop_loss,
                 tp=take_profit
             )
             
-            logger.info(f"🔧 place_trade returned: {result}")
+            logger.info(f"place_trade returned: {result}")
             if result is None:
-                logger.error(f"❌ place_trade returned None - execution failed")
+                logger.error(f"MT5 execution failed: place_trade returned None")
+                logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | FAILED")
                 return False
             elif hasattr(result, 'retcode') and result.retcode != mt5.TRADE_RETCODE_DONE:
-                logger.error(f"❌ place_trade failed with retcode: {result.retcode}")
+                logger.error(f"MT5 execution failed: retcode {result.retcode}")
+                logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | FAILED")
                 return False
             
             if result:
+                # MT5 EXECUTION CONFIRMED - NOW LOG EXECUTED
+                logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | EXECUTED")
+                
                 # LEVEL 5: Update trade memory and time for anti-spam
                 self._last_trade_time[symbol] = current_time
                 self._trade_memory[symbol] = (signal, current_time)  # Store signal and time
@@ -1559,7 +1582,7 @@ Bot: Nyx AI Level 6
                 
                 # Note: Loss tracking will be updated when trade closes (in profit/loss monitoring)
                 
-                logger.info(f"🔄 Critical tracking updated for {symbol}: direction={signal}, cycle={current_time}")
+                logger.info(f"Critical tracking updated for {symbol}: direction={signal}, cycle={current_time}")
                 
                 # Register trade with professional manager
                 self.trade_manager.register_trade(
@@ -1568,7 +1591,7 @@ Bot: Nyx AI Level 6
                 )
                 
                 # LEVEL 5: Send ONE clean Telegram message for executed trade
-                trade_message = f"""🚀 TRADE EXECUTED
+                trade_message = f"""TRADE EXECUTED
 
 Symbol: {symbol}
 Signal: {signal} ({confidence:.1f}%)
@@ -1585,16 +1608,16 @@ Score: {trade_score:.3f}
                 self._send_trade_telegram(trade_message, symbol)
                 
                 # LEVEL 5: Clean logging - only important events
-                logger.info(f"✅ TRADE EXECUTED: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
+                logger.info(f"TRADE EXECUTED: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
                 
-                # � LEVEL 10.1: INCREMENT DAILY TRADE COUNTER
+                # LEVEL 10.1: INCREMENT DAILY TRADE COUNTER
                 elite_config.increment_trades()
-                logger.info(f"🧠 ELITE: Daily trades now: {elite_config.trades_today}/{elite_config.MAX_TRADES_PER_DAY}")
+                logger.info(f"ELITE: Daily trades now: {elite_config.trades_today}/{elite_config.MAX_TRADES_PER_DAY}")
                 
-                # 🔥 LEVEL 10.1: ACTIVATE TRAILING STOP FOR WINNERS
+                # LEVEL 10.1: ACTIVATE TRAILING STOP FOR WINNERS
                 # We'll add trailing stop logic in the profit management function
                 
-                # �🔥 LEVEL 9: Log trade execution to analytics
+                # LEVEL 9: Log trade execution to analytics
                 analytics.log_trade_execution(
                     symbol, signal, confidence, entry_price, 
                     stop_loss, take_profit, final_lot_size, success=True
@@ -1603,14 +1626,13 @@ Score: {trade_score:.3f}
                 # LEVEL 7: Journal the trade
                 self._journal_trade(symbol, signal, entry_price, stop_loss, take_profit, final_lot_size, "EXECUTED", datetime.now())
                 
-                # 🔧 FIX 3: CORRECT RETURN LOGIC
+                # FIX 3: CORRECT RETURN LOGIC
                 return True  # Return True only on successful execution
-                
             else:
                 # LEVEL 5: Safe execution - log error and continue
-                logger.warning(f"❌ Trade execution failed: {symbol} {signal}")
+                logger.warning(f"Trade execution failed: {symbol} {signal}")
                 
-                # 🔥 LEVEL 9: Log failed trade to analytics
+                # LEVEL 9: Log failed trade to analytics
                 analytics.log_trade_execution(
                     symbol, signal, confidence, entry_price, 
                     stop_loss, take_profit, final_lot_size, success=False
@@ -1618,7 +1640,7 @@ Score: {trade_score:.3f}
                 
                 # Do NOT send Telegram for failed trades (LEVEL 5 anti-spam)
                 
-                return False  # 🔥 FIX 3: Return False on failed execution
+                return False  # FIX 3: Return False on failed execution
                 
         except Exception as e:
             # LEVEL 5: Safe execution - wrap entire function in try/except

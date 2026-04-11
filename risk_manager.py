@@ -20,7 +20,13 @@ class RiskManager:
         if not ENABLE_SESSION_FILTER:
             return True, "Session filter disabled"
             
-        current_hour = datetime.now().hour
+        now = datetime.now()
+        current_hour = now.hour
+        weekday = now.weekday()  # 0=Mon, 6=Sun
+        
+        # WEEKEND PROTECTION - Block trading on weekends
+        if weekday >= 5:  # Saturday (5) or Sunday (6)
+            return False, "Weekend protection active - trading disabled"
         
         # Check Asian session (00:00-08:00 UTC)
         asian_active = ASIAN_SESSION_START <= current_hour < ASIAN_SESSION_END
@@ -69,7 +75,7 @@ class RiskManager:
                     elif hasattr(atr_value, 'item'):
                         atr_value = atr_value.item()  # Convert numpy scalar
                     elif hasattr(atr_value, 'any'):  # numpy array
-                        if atr_value.any():  # Use .any() instead of direct boolean
+                        if atr_value.size > 0:  # Check if array has elements
                             atr_value = float(atr_value[-1])
                         else:
                             atr_value = 0.0
