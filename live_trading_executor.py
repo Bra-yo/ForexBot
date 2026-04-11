@@ -795,32 +795,6 @@ Bot: Nyx AI Level 6
                     ema_fast, ema_slow, rsi, current_volume, avg_volume, atr
                 )
                 
-                trend_strength = quality_assessment['trend_strength']
-                momentum = quality_assessment['momentum']
-                volume_factor = quality_assessment['volume_strength']
-                volatility = quality_assessment['volatility']
-                
-                # 🔥 LEVEL 10.2: ADAPTIVE INTELLIGENCE MODE
-                # Use signal quality score as trade score
-                score = quality_assessment['final_score']
-                
-                logger.info(f"📊 REAL Signal Quality for {symbol}: {score:.2f}")
-                
-                # 🧠 INTELLIGENT THRESHOLD DECISION
-                should_trade, decision_msg = self.adaptive_threshold.should_trade(score)
-                logger.info(f"🧠 Adaptive Decision: {decision_msg}")
-                
-                if not should_trade:
-                    logger.warning(f"❌ Adaptive threshold rejected | Score={score:.2f}")
-                    return 0  # 🔥 CRITICAL: Return 0, but DON'T modify score value
-                
-                # 🎯 DYNAMIC POSITION SIZING BASED ON PERFORMANCE
-                performance_summary = self.adaptive_threshold.get_performance_summary()
-                current_mode = performance_summary['mode']
-                
-                if current_mode == "Selective":
-                    logger.info(f"🛡️ SELECTIVE MODE - Reduced lot size | Score={score:.2f}")
-                    trade_multiplier = 0.7  # Safer position
                 elif current_mode == "Aggressive":
                     logger.info(f"⚡ AGGRESSIVE MODE - Full lot size | Score={score:.2f}")
                     trade_multiplier = 1.0  # Full position
@@ -1154,17 +1128,40 @@ Bot: Nyx AI Level 6
             trade_score = self._calculate_trade_score(symbol, confidence, market_data)
             logger.info(f"📊 Trade score for {symbol}: {trade_score:.3f}")
             
-            # 🔥 REMOVED OLD THRESHOLD CHECK: Adaptive system handles this now
+            # 🧠 INTELLIGENT THRESHOLD DECISION
+            should_trade, decision_msg = self.adaptive_threshold.should_trade(trade_score)
+            logger.info(f"🧠 Adaptive Decision: {decision_msg}")
+
+            if not should_trade:
+                logger.warning(f"❌ Adaptive threshold rejected | Score={trade_score:.2f}")
+                # 📊 IMPROVED LOG: Clear rejection reason
+                logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | REJECTED ({decision_msg})")
+                return False  # 🔥 CRITICAL: Return False, preserve trade_score
+            
+            # � IMPROVED LOG: Clear execution details
+            logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | EXECUTED")
             logger.info(f"✅ Passed all checks for {symbol} - Score: {trade_score:.3f}")
             
             # Allow None for SL/TP - they will be calculated internally
             
             # Calculate SL/TP if not provided
             if stop_loss is None or take_profit is None:
-                # 🔧 FIX 2: IMPROVED INVALID STOPS FIX
-                symbol_info = mt5.symbol_info(symbol)
+                # 🔧 FIX 4: MT5 SYMBOL INFO WITH RETRY
+                symbol_info = None
+                for attempt in range(3):  # Retry 3 times
+                    mt5.symbol_select(symbol, True)  # Ensure symbol is selected
+                    symbol_info = mt5.symbol_info(symbol)
+                    if symbol_info is not None:
+                        break
+                    logger.warning(f"Retry {attempt + 1} for {symbol} info...")
+                    time.sleep(0.5)  # Wait 500ms between retries
+                
                 if symbol_info is None:
-                    logger.error(f"Cannot get symbol info for {symbol}")
+                    logger.error(f"Cannot get symbol info for {symbol} after 3 attempts")
+                    self.telegram_alerts.critical_error_alert(
+                        f"MT5 Symbol Info Failure: {symbol}",
+                        "MT5 System"
+                    )
                     return False
                 
                 point = symbol_info.point
