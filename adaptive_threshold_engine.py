@@ -165,22 +165,22 @@ class AdaptiveThresholdEngine:
         threshold = min(threshold, self.MAX_THRESHOLD)
         
         if threshold != original_threshold:
-            logger.info(f"🛡️ Drawdown adjustment: {original_threshold:.3f} → {threshold:.3f}")
+            logger.info(f" Drawdown adjustment: {original_threshold:.3f} → {threshold:.3f}")
         
         return threshold
     
     def get_intelligent_threshold(self) -> float:
         """
-        🧠 MAIN INTELLIGENCE FUNCTION
-        Get the current intelligent threshold
+        MAIN INTELLIGENCE FUNCTION
+        Get the current intelligent threshold using trade memory system
         """
-        # Calculate base dynamic threshold
-        dynamic_threshold = self.calculate_dynamic_threshold()
-        
-        # Apply drawdown adjustment
-        final_threshold = self.adjust_for_drawdown(dynamic_threshold, self.current_drawdown)
-        
-        return final_threshold
+        # Use trade memory system for intelligent threshold
+        try:
+            from trade_memory_system import trade_memory
+            return trade_memory.get_adaptive_threshold()
+        except:
+            # Fallback to original logic
+            return self.calculate_dynamic_threshold()
     
     def update_performance_metrics(self, daily_pnl: float = None, current_drawdown: float = None):
         """Update performance metrics"""

@@ -6,6 +6,7 @@ LEVEL 10.1: ELITE TRADING SYSTEM
 
 import logging
 import time
+import json
 from datetime import datetime
 import MetaTrader5 as mt5
 from signal_quality_engine import SignalQualityEngine
@@ -13,6 +14,7 @@ from adaptive_threshold_engine import AdaptiveThresholdEngine
 from adaptive_confidence_system import AdaptiveConfidenceSystem
 from elite_trade_override import EliteTradeOverride
 from advanced_learning_system import AdvancedLearningSystem
+from trade_memory_system import trade_memory
 from vps_watchdog import VPSWatchdog
 from advanced_telegram_alerts import AdvancedTelegramAlerts
 from advanced_telegram_assistant import AdvancedTelegramAssistant
@@ -740,6 +742,42 @@ Bot: Nyx AI Level 6
         except Exception as e:
             logger.error(f"Error resetting daily metrics: {e}")
     
+    def _update_trade_results(self):
+        """Update trade results in memory system for closed positions"""
+        try:
+            # Get closed positions from MT5
+            history = mt5.history_deals_get(
+                datetime.now().replace(hour=0, minute=0, second=0),
+                datetime.now()
+            )
+            
+            if history:
+                for deal in history:
+                    if deal.type == mt5.DEAL_TYPE_BUY or deal.type == mt5.DEAL_TYPE_SELL:
+                        # Find corresponding trade in memory
+                        trades = trade_memory.load_trade_history()
+                        for trade in trades:
+                            if (trade["symbol"] == deal.symbol and 
+                                trade["timestamp"][:10] == datetime.fromtimestamp(deal.time).strftime("%Y-%m-%d") and
+                                trade["result"] == "EXECUTED"):
+                                
+                                # Update trade result
+                                result = "WIN" if deal.profit > 0 else "LOSS"
+                                
+                                # Update the trade in memory
+                                trade["result"] = result
+                                trade["profit"] = deal.profit
+                                
+                                # Save updated trades
+                                with open("trade_history.json", 'w') as f:
+                                    json.dump(trades, f, indent=2)
+                                
+                                logger.info(f"Trade result updated: {deal.symbol} {result} | Profit: ${deal.profit:.2f}")
+                                break
+                                
+        except Exception as e:
+            logger.error(f"Error updating trade results: {e}")
+
     def _update_profit_tracking(self):
         """LEVEL 6: Update daily profit and send periodic updates"""
         if self._starting_balance is None:
@@ -1503,8 +1541,17 @@ Bot: Nyx AI Level 6
                 self._last_trade_time[symbol] = current_time
                 self._trade_memory[symbol] = (signal, current_time)  # Store signal and time
                 
-                # 🔥 CRITICAL FIXES: UPDATE TRACKING SYSTEMS
-                # Update trade direction for consistency
+                # Save trade to memory system
+                trade_memory.save_trade(
+                    symbol=symbol,
+                    direction=signal,
+                    score=trade_score,
+                    result="EXECUTED",  # Will be updated to WIN/LOSS when closed
+                    profit=0.0,  # Will be updated when trade closes
+                    timestamp=datetime.now().isoformat()
+                )
+                
+                # LEVEL 6: Update trade direction for consistency
                 self._update_trade_direction(symbol, signal)
                 
                 # Update cycle count for cooldown
@@ -1585,6 +1632,9 @@ Score: {trade_score:.3f}
         
         # LEVEL 6: Update profit tracking first
         self._update_profit_tracking()
+        
+        # Update trade results from MT5 history
+        self._update_trade_results()
         
         # NEW: Check for emergency stop file
         if self.check_stop_file():
