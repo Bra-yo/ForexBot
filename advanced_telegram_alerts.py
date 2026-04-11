@@ -4,7 +4,7 @@ LEVEL 10.3: Comprehensive alert management for critical events
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, Any, Optional
 import json
 import os
@@ -237,7 +237,7 @@ class AdvancedTelegramAlerts:
         """Send daily performance summary"""
         try:
             # Check if we already sent today's summary
-            today = datetime.now().date()
+            today = date.today()
             
             if self.last_daily_summary == today:
                 logger.debug("Daily summary already sent today")

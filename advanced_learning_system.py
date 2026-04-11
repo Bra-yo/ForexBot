@@ -200,7 +200,7 @@ class AdvancedLearningSystem:
         """Get daily performance summary"""
         try:
             if target_date is None:
-                target_date = datetime.now().date()
+                target_date = date.today()
             
             date_str = target_date.isoformat()
             
