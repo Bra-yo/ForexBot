@@ -110,14 +110,15 @@ class SignalQualityEngine:
             score = self.final_score(trend_strength, momentum, volume_strength, volatility)
             
             # Log detailed analysis
-            self.logger.info(f"""
+            analysis_msg = f"""
 📊 SIGNAL QUALITY ANALYSIS
    Trend Strength: {trend_strength:.2f}
    Momentum: {momentum:.2f}
    Volume Strength: {volume_strength:.2f}
    Volatility: {volatility:.2f}
    FINAL SCORE: {score:.2f}
-""")
+"""
+            self.logger.info(analysis_msg)
             
             return {
                 'trend_strength': trend_strength,
