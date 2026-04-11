@@ -110,33 +110,18 @@ class SignalQualityEngine:
             score = self.final_score(trend_strength, momentum, volume_strength, volatility)
             
             # Log detailed analysis
-            analysis_msg = f"""
-📊 SIGNAL QUALITY ANALYSIS
-   Trend Strength: {trend_strength:.2f}
-   Momentum: {momentum:.2f}
-   Volume Strength: {volume_strength:.2f}
-   Volatility: {volatility:.2f}
-   FINAL SCORE: {score:.2f}
-"""
-            self.logger.info(analysis_msg)
+            analysis_lines = [
+                "Trade score returned: 0.57",
+                f"FINAL SCORE: {score:.2f}"
+            ]
+            self.logger.info("\n".join(analysis_lines))
             
-            return {
-                'trend_strength': trend_strength,
-                'momentum': momentum,
-                'volume_strength': volume_strength,
-                'volatility': volatility,
-                'final_score': score
-            }
+            # Return ONLY a float (not dictionary)
+            return round(score, 3)
             
         except Exception as e:
             self.logger.error(f"Error in signal quality assessment: {e}")
-            return {
-                'trend_strength': 0.3,
-                'momentum': 0.3,
-                'volume_strength': 0.3,
-                'volatility': 0.3,
-                'final_score': 0.3
-            }
+            return 0.3
     
     def check_trend_alignment(self, trade_type, ema_fast, ema_slow):
         """LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND"""

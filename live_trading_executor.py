@@ -791,9 +791,15 @@ Bot: Nyx AI Level 6
                 atr = market_data.get('atr', 0)
                 
                 # Calculate real signal quality
-                quality_assessment = self.signal_engine.assess_signal_quality(
+                score = self.signal_engine.assess_signal_quality(
                     ema_fast, ema_slow, rsi, current_volume, avg_volume, atr
                 )
+                
+                # Safe fallback for score
+                try:
+                    score = float(score)
+                except:
+                    score = 0.3
                 
                 # 🎯 DYNAMIC POSITION SIZING BASED ON PERFORMANCE
                 # Get performance summary for mode decision
@@ -806,25 +812,21 @@ Bot: Nyx AI Level 6
                     current_mode = "Normal"
                 
                 if current_mode == "Aggressive":
-                    logger.info(f"⚡ AGGRESSIVE MODE - Full lot size | Score={quality_assessment:.2f}")
+                    logger.info(f"AGGRESSIVE MODE - Full lot size | Score={score:.2f}")
                     trade_multiplier = 1.0  # Full position
                 else:
-                    logger.info(f"🔥 NORMAL MODE - Standard lot size | Score={quality_assessment:.2f}")
+                    logger.info(f"NORMAL MODE - Standard lot size | Score={score:.2f}")
                     trade_multiplier = 0.85  # Standard position
                 
-                # 📊 Register trade for adaptive learning
-                self.adaptive_threshold.add_trade_result(symbol, 0.0, quality_assessment)  # Will update with actual profit later
+                # Register trade for adaptive learning
+                self.adaptive_threshold.add_trade_result(symbol, 0.0, score)  # Will update with actual profit later
                 
-                return quality_assessment
+                return score
             else:
                 # Fallback to basic confidence if no market data
-                logger.warning(f"⚠️ No market data for {symbol} - using confidence only")
+                logger.warning(f"No market data for {symbol} - using confidence only")
                 return confidence / 100.0
                 
-        except Exception as e:
-            logger.error(f"Error calculating trade score: {e}")
-            return 0
-            
         except Exception as e:
             logger.error(f"Error calculating trade score: {e}")
             return 0.5  # Default middle score
