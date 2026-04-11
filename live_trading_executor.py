@@ -795,7 +795,17 @@ Bot: Nyx AI Level 6
                     ema_fast, ema_slow, rsi, current_volume, avg_volume, atr
                 )
                 
-                elif current_mode == "Aggressive":
+                # 🎯 DYNAMIC POSITION SIZING BASED ON PERFORMANCE
+                # Get performance summary for mode decision
+                performance_summary = self.adaptive_threshold.get_performance_summary()
+                current_mode = "Normal"  # Default mode
+                
+                if performance_summary.get('mode') == 'Selective':
+                    current_mode = "Aggressive"
+                elif performance_summary.get('mode') == 'Aggressive':
+                    current_mode = "Normal"
+                
+                if current_mode == "Aggressive":
                     logger.info(f"⚡ AGGRESSIVE MODE - Full lot size | Score={score:.2f}")
                     trade_multiplier = 1.0  # Full position
                 else:
