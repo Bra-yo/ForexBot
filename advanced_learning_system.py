@@ -4,7 +4,7 @@ LEVEL 10.3: Fixed and enhanced trade learning and scoring
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Any, Optional
 import json
 import os
@@ -196,7 +196,7 @@ class AdvancedLearningSystem:
             logger.error(f"Error getting recent performance: {e}")
             return {}
     
-    def get_daily_summary(self, target_date: datetime.date = None) -> Dict[str, Any]:
+    def get_daily_summary(self, target_date: date = None) -> Dict[str, Any]:
         """Get daily performance summary"""
         try:
             if target_date is None:
