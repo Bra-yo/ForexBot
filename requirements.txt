@@ -9,6 +9,8 @@ python-dotenv>=1.0.0
 schedule>=1.2.0
 telebot>=0.0.5
 plotly>=5.15.0
+# VPS Watchdog - Process Management (LEVEL 10.3)
+psutil>=5.9.0
 # MT5 Integration
 MetaTrader5>=5.0.0
 pytz>=2023.3
