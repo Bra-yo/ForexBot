@@ -1,0 +1,19 @@
+{
+    "original_signal": {
+        "symbol": "EURUSD",
+        "action": "BUY",
+        "lot": 0.01,
+        "sl": 1.1,
+        "tp": 1.11,
+        "confidence": 85.5,
+        "score": 0.72,
+        "timestamp": "2026-04-24T16:06:07.471752",
+        "entry_price": null,
+        "signal_id": "EURUSD_BUY_1777046767"
+    },
+    "execution_result": {
+        "success": true,
+        "ticket": 12345
+    },
+    "consumed_timestamp": "2026-04-24T16:06:07.482040"
+}

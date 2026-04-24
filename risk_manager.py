@@ -4,7 +4,7 @@ Handles correlation, exposure, session filtering, and volatility checks
 """
 
 import time
-import MetaTrader5 as mt5
+# import MetaTrader5 as mt5  # REMOVED - using Signal Bridge for Linux compatibility
 from datetime import datetime
 from config import *
 

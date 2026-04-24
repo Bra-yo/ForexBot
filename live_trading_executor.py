@@ -8,7 +8,8 @@ import logging
 import time
 import json
 from datetime import datetime
-import MetaTrader5 as mt5
+# import MetaTrader5 as mt5  # REMOVED - using Signal Bridge for Linux compatibility
+from signal_bridge import signal_bridge, send_signal, get_signal_status
 from signal_quality_engine import SignalQualityEngine
 from adaptive_threshold_engine import AdaptiveThresholdEngine
 from adaptive_confidence_system import AdaptiveConfidenceSystem
@@ -18,7 +19,11 @@ from trade_memory_system import trade_memory
 from vps_watchdog import VPSWatchdog
 from advanced_telegram_alerts import AdvancedTelegramAlerts
 from advanced_telegram_assistant import AdvancedTelegramAssistant
-from mt5_executor import place_trade, check_safety_filters, get_account_info, check_open_positions, close_old_positions
+from signal_bridge_executor import (
+    place_trade, check_safety_filters, get_account_info, 
+    check_open_positions, close_old_positions, get_symbol_info, get_tick_data,
+    initialize_mt5, shutdown_mt5, TRADE_RETCODE_DONE
+)
 from professional_trade_executor import close_trade_professional, close_all_positions_professional
 from level3_intelligence import IntelligentTradeManager, AdaptiveLotSizer, ProfitTargetManager
 from trade_manager import TradeManager
@@ -1101,19 +1106,19 @@ Bot: Nyx AI Level 6
         
             logger.info(f"✅ Session check passed for {symbol}")
             
-            # MARKET OPEN CHECK - Verify market is actually open
-            symbol_info = mt5.symbol_info(symbol)
-            if symbol_info is None or not symbol_info.visible:
+            # MARKET OPEN CHECK - Verify market is actually open (Signal Bridge compatible)
+            symbol_info = get_symbol_info(symbol)
+            if symbol_info is None:
                 logger.error(f"Symbol not available: {symbol}")
                 return False
             
-            if symbol_info.trade_mode != mt5.SYMBOL_TRADE_MODE_FULL:
+            if symbol_info.get('trade_mode', 0) != 1:  # 1 = SYMBOL_TRADE_MODE_FULL
                 logger.error(f"Market not open for trading: {symbol}")
                 return False
             
-            # Check for live market data
-            tick = mt5.symbol_info_tick(symbol)
-            if tick is None or tick.bid == 0 or tick.ask == 0:
+            # Check for live market data (mock for signal bridge)
+            tick = get_tick_data(symbol)
+            if tick is None or tick.get('bid', 0) == 0 or tick.get('ask', 0) == 0:
                 logger.error(f"No live market data - market likely closed: {symbol}")
                 return False
             
@@ -1214,11 +1219,10 @@ Bot: Nyx AI Level 6
             
             # Calculate SL/TP if not provided
             if stop_loss is None or take_profit is None:
-                # 🔧 FIX 4: MT5 SYMBOL INFO WITH RETRY
+                # 🔧 FIX 4: SYMBOL INFO WITH RETRY (Signal Bridge compatible)
                 symbol_info = None
                 for attempt in range(3):  # Retry 3 times
-                    mt5.symbol_select(symbol, True)  # Ensure symbol is selected
-                    symbol_info = mt5.symbol_info(symbol)
+                    symbol_info = get_symbol_info(symbol)
                     if symbol_info is not None:
                         break
                     logger.warning(f"Retry {attempt + 1} for {symbol} info...")
@@ -1227,33 +1231,21 @@ Bot: Nyx AI Level 6
                 if symbol_info is None:
                     logger.error(f"Cannot get symbol info for {symbol} after 3 attempts")
                     self.telegram_alerts.critical_error_alert(
-                        f"MT5 Symbol Info Failure: {symbol}",
-                        "MT5 System"
+                        f"Symbol Info Failure: {symbol}",
+                        "Signal Bridge System"
                     )
                     return False
                 
-                point = symbol_info.point
-                # 🔧 CRITICAL FIX: Use correct attribute name with try-catch
-                try:
-                    if hasattr(symbol_info, 'stop_level') and symbol_info.stop_level > 0:
-                        min_stop = symbol_info.stop_level * point
-                    else:
-                        # 🔧 FIX: Use proper minimum stop based on symbol type
-                        if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
-                            min_stop = 20 * point  # 20 pips for JPY (0.20)
-                        else:
-                            min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
-                except AttributeError as e:
-                    logger.warning(f"⚠️ SymbolInfo stop_level attribute error: {e}")
-                    # 🔧 FIX: Use proper minimum stop based on symbol type
-                    if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
-                        min_stop = 20 * point  # 20 pips for JPY (0.20)
-                    else:
-                        min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
+                point = symbol_info.get('point', 0.00001)
+                # 🔧 CRITICAL FIX: Use proper minimum stop based on symbol type
+                if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
+                    min_stop = 20 * point  # 20 pips for JPY (0.20)
+                else:
+                    min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
                 # 🔥 LEVEL 8: SMART RISK ENGINE - REPLACE ALL SL/TP LOGIC
-                # Get ATR value using LEVEL 8 method
-                atr_value = self.get_atr(symbol, mt5.TIMEFRAME_M15, 14)
+                # Get ATR value using mock method for signal bridge
+                atr_value = self.get_atr(symbol, 'M15', 14)  # Use string timeframe instead of MT5 constant
                 
                 if atr_value is None:
                     logger.warning(f"⚠️ ATR unavailable for {symbol} - using fallback")
@@ -1316,14 +1308,14 @@ Bot: Nyx AI Level 6
                         logger.info(f"🧠 ELITE: Trade blocked: Low R/R ratio ({rr_ratio:.2f} < {elite_config.MIN_RR_RATIO})")
                         return False
             
-            # Check spread
-            tick = mt5.symbol_info_tick(symbol)
+            # Check spread (Signal Bridge compatible)
+            tick = get_tick_data(symbol)
             if tick:
                 # CRITICAL FIX 2: Fix spread calculation - use proper formula
-                spread_points = tick.ask - tick.bid
-                symbol_info = mt5.symbol_info(symbol)
-                if symbol_info and symbol_info.point > 0:
-                    spread_pips = spread_points / symbol_info.point
+                spread_points = tick['ask'] - tick['bid']
+                symbol_info = get_symbol_info(symbol)
+                if symbol_info and symbol_info.get('point', 0) > 0:
+                    spread_pips = spread_points / symbol_info['point']
                 else:
                     spread_pips = spread_points * 10000  # Fallback for 5-digit brokers
 
@@ -1476,10 +1468,14 @@ Bot: Nyx AI Level 6
                     self._last_risk_block_hour = current_hour
                 return False
             
-            # LEGACY SAFETY FILTERS (Keep for compatibility)
-            tick = mt5.symbol_info_tick(symbol)
+            # LEGACY SAFETY FILTERS (Signal Bridge compatible)
+            tick = get_tick_data(symbol)
             if tick:
-                spread_points = (tick.ask - tick.bid) / mt5.symbol_info(symbol).point
+                symbol_info = get_symbol_info(symbol)
+                if symbol_info and symbol_info.get('point', 0) > 0:
+                    spread_points = (tick['ask'] - tick['bid']) / symbol_info['point']
+                else:
+                    spread_points = (tick['ask'] - tick['bid']) * 10000
                 spread_pips = spread_points * 10
                 self.risk_manager.update_average_spread(symbol, spread_points)
             else:
@@ -1536,29 +1532,32 @@ Bot: Nyx AI Level 6
                 else:
                     take_profit = None  # Use original calculation
             
-            # EXECUTE TRADE
-            logger.info(f"About to call place_trade for {symbol}...")
+            # EXECUTE TRADE (Signal Bridge Export)
+            logger.info(f"📤 Exporting trade signal to MT5 via bridge for {symbol}...")
             result = place_trade(
                 symbol=symbol,
                 signal=signal,
                 lot=final_lot_size,
                 sl=stop_loss,
-                tp=take_profit
+                tp=take_profit,
+                confidence=confidence,
+                score=trade_score,
+                entry_price=entry_price
             )
             
-            logger.info(f"place_trade returned: {result}")
+            logger.info(f"Signal bridge returned: {result}")
             if result is None:
-                logger.error(f"MT5 execution failed: place_trade returned None")
+                logger.error(f"Signal bridge export failed: place_trade returned None")
                 logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | FAILED")
                 return False
-            elif hasattr(result, 'retcode') and result.retcode != mt5.TRADE_RETCODE_DONE:
-                logger.error(f"MT5 execution failed: retcode {result.retcode}")
+            elif hasattr(result, 'retcode') and result.retcode != TRADE_RETCODE_DONE:
+                logger.error(f"Signal bridge export failed: retcode {result.retcode}")
                 logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | FAILED")
                 return False
             
             if result:
-                # MT5 EXECUTION CONFIRMED - NOW LOG EXECUTED
-                logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | EXECUTED")
+                # SIGNAL BRIDGE EXPORT CONFIRMED - NOW LOG SIGNAL SENT
+                logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | SIGNAL SENT")
                 
                 # LEVEL 5: Update trade memory and time for anti-spam
                 self._last_trade_time[symbol] = current_time
@@ -1569,7 +1568,7 @@ Bot: Nyx AI Level 6
                     symbol=symbol,
                     direction=signal,
                     score=trade_score,
-                    result="EXECUTED",  # Will be updated to WIN/LOSS when closed
+                    result="SIGNAL SENT",  # Will be updated to WIN/LOSS when executed by MT5
                     profit=0.0,  # Will be updated when trade closes
                     timestamp=datetime.now().isoformat()
                 )
@@ -1582,16 +1581,16 @@ Bot: Nyx AI Level 6
                 
                 # Note: Loss tracking will be updated when trade closes (in profit/loss monitoring)
                 
-                logger.info(f"Critical tracking updated for {symbol}: direction={signal}, cycle={current_time}")
+                logger.info(f"Signal tracking updated for {symbol}: direction={signal}, cycle={current_time}")
                 
-                # Register trade with professional manager
+                # Register trade with professional manager (mock for signal bridge)
                 self.trade_manager.register_trade(
                     result.order, symbol, signal, entry_price, 
                     stop_loss, take_profit, final_lot_size  # LEVEL 7: Use dynamic lot size
                 )
                 
-                # LEVEL 5: Send ONE clean Telegram message for executed trade
-                trade_message = f"""TRADE EXECUTED
+                # LEVEL 5: Send ONE clean Telegram message for signal sent
+                trade_message = f"""SIGNAL SENT
 
 Symbol: {symbol}
 Signal: {signal} ({confidence:.1f}%)
@@ -1601,46 +1600,43 @@ Take Profit: {take_profit:.5f}
 Lot Size: {lot_size:.2f}
 
 Time: {datetime.now().strftime('%H:%M:%S')}
-Status: ACTIVE
-Bot: Nyx AI Level 7
+Status: PENDING MT5 EXECUTION
+Bot: Nyx AI Signal Bridge
 Score: {trade_score:.3f}
 """
                 self._send_trade_telegram(trade_message, symbol)
                 
                 # LEVEL 5: Clean logging - only important events
-                logger.info(f"TRADE EXECUTED: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
+                logger.info(f"SIGNAL SENT: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
                 
                 # LEVEL 10.1: INCREMENT DAILY TRADE COUNTER
                 elite_config.increment_trades()
                 logger.info(f"ELITE: Daily trades now: {elite_config.trades_today}/{elite_config.MAX_TRADES_PER_DAY}")
                 
-                # LEVEL 10.1: ACTIVATE TRAILING STOP FOR WINNERS
-                # We'll add trailing stop logic in the profit management function
-                
-                # LEVEL 9: Log trade execution to analytics
+                # LEVEL 9: Log signal export to analytics
                 analytics.log_trade_execution(
                     symbol, signal, confidence, entry_price, 
                     stop_loss, take_profit, final_lot_size, success=True
                 )
                 
                 # LEVEL 7: Journal the trade
-                self._journal_trade(symbol, signal, entry_price, stop_loss, take_profit, final_lot_size, "EXECUTED", datetime.now())
+                self._journal_trade(symbol, signal, entry_price, stop_loss, take_profit, final_lot_size, "EXPORTED", datetime.now())
                 
                 # FIX 3: CORRECT RETURN LOGIC
-                return True  # Return True only on successful execution
+                return True  # Return True only on successful signal export
             else:
                 # LEVEL 5: Safe execution - log error and continue
-                logger.warning(f"Trade execution failed: {symbol} {signal}")
+                logger.warning(f"Signal export failed: {symbol} {signal}")
                 
-                # LEVEL 9: Log failed trade to analytics
+                # LEVEL 9: Log failed signal to analytics
                 analytics.log_trade_execution(
                     symbol, signal, confidence, entry_price, 
                     stop_loss, take_profit, final_lot_size, success=False
                 )
                 
-                # Do NOT send Telegram for failed trades (LEVEL 5 anti-spam)
+                # Do NOT send Telegram for failed signals (LEVEL 5 anti-spam)
                 
-                return False  # FIX 3: Return False on failed execution
+                return False  # FIX 3: Return False on failed signal export
                 
         except Exception as e:
             # LEVEL 5: Safe execution - wrap entire function in try/except

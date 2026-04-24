@@ -11,8 +11,8 @@ telebot>=0.0.5
 plotly>=5.15.0
 # VPS Watchdog - Process Management (LEVEL 10.3)
 psutil>=5.9.0
-# MT5 Integration
-MetaTrader5>=5.0.0
+# Signal Bridge System (replaces MT5)
+# MetaTrader5>=5.0.0  # REMOVED - using Wine + File Bridge
 pytz>=2023.3
 asyncio-throttle>=1.0.2
 # AI/ML Dependencies

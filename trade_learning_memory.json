@@ -1,0 +1,251 @@
+{
+  "total_trades": 24,
+  "wins": 18,
+  "losses": 6,
+  "win_rate": 75.0,
+  "recent_trades": [
+    {
+      "symbol": "USDCAD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-13T23:38:53.222680",
+      "date": "2026-04-13",
+      "was_profitable": true
+    },
+    {
+      "symbol": "AUDUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-14T01:31:53.255878",
+      "date": "2026-04-14",
+      "was_profitable": false
+    },
+    {
+      "symbol": "NZDUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-14T01:35:53.257987",
+      "date": "2026-04-14",
+      "was_profitable": false
+    },
+    {
+      "symbol": "USDCAD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-14T06:49:53.441356",
+      "date": "2026-04-14",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURJPY",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-14T21:55:04.010803",
+      "date": "2026-04-14",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURGBP",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-15T15:14:24.409995",
+      "date": "2026-04-15",
+      "was_profitable": true
+    },
+    {
+      "symbol": "NZDUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-15T15:59:25.817207",
+      "date": "2026-04-15",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURGBP",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-15T22:07:29.826022",
+      "date": "2026-04-15",
+      "was_profitable": false
+    },
+    {
+      "symbol": "USDCAD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-15T22:11:30.139655",
+      "date": "2026-04-15",
+      "was_profitable": true
+    },
+    {
+      "symbol": "USDJPY",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T00:33:29.800029",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURJPY",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T01:17:29.891981",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "AUDUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T01:38:29.831367",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURGBP",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T06:46:30.012351",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURJPY",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T11:58:32.099278",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "AUDUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T15:13:32.153634",
+      "date": "2026-04-16",
+      "was_profitable": false
+    },
+    {
+      "symbol": "USDJPY",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T15:14:32.092528",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "NZDUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T15:28:33.125996",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T15:40:32.079657",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURJPY",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T15:58:32.113025",
+      "date": "2026-04-16",
+      "was_profitable": false
+    },
+    {
+      "symbol": "EURGBP",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T16:16:32.196901",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "EURJPY",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T19:55:32.326805",
+      "date": "2026-04-16",
+      "was_profitable": false
+    },
+    {
+      "symbol": "USDCAD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T21:04:32.299416",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "USDJPY",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T23:19:32.406821",
+      "date": "2026-04-16",
+      "was_profitable": true
+    },
+    {
+      "symbol": "AUDUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-04-16T23:27:32.614931",
+      "date": "2026-04-16",
+      "was_profitable": true
+    }
+  ],
+  "daily_performance": {
+    "2026-04-13": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "profit": 50.0
+    },
+    "2026-04-14": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "profit": 50.0
+    },
+    "2026-04-15": {
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "profit": 125.0
+    },
+    "2026-04-16": {
+      "trades": 15,
+      "wins": 12,
+      "losses": 3,
+      "profit": 525.0
+    }
+  },
+  "last_updated": "2026-04-16T23:27:32.614965"
+}

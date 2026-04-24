@@ -1,1 +1,802 @@
-[]
+[
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T08:14:24.158651"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T08:27:24.084090"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T08:29:24.099863"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T09:15:24.259480"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T09:57:24.407128"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T10:08:24.501814"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T10:25:24.352681"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T10:35:24.449451"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T10:36:24.587176"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T10:39:25.208415"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T11:12:24.305160"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T11:17:24.547136"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T11:29:24.359139"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T11:36:24.305244"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T11:37:25.023230"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T12:12:24.488295"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T12:12:25.790767"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T12:14:24.424788"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T12:30:27.812979"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T13:07:24.850137"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T13:24:24.402742"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T13:50:24.378644"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T14:19:24.361876"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T14:43:24.331313"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:01:24.529810"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:16:24.390324"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:19:24.366768"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:35:24.707415"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:41:25.056531"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:50:24.458592"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T15:59:24.403749"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T17:10:24.391721"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T17:13:24.353510"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T17:19:24.370492"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T17:20:24.495657"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T18:21:29.900625"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T18:24:29.901102"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T18:25:29.965866"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T18:31:29.776839"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T18:42:29.902535"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T19:25:29.992184"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T19:47:29.697085"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T20:11:29.741729"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T20:47:29.715175"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T21:31:29.929262"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-15T21:52:29.747274"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T03:00:29.854637"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T03:00:31.784746"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T03:01:29.900849"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T05:57:29.992337"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T06:17:29.975983"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T06:39:29.966848"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T06:53:30.079467"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T08:10:30.133677"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T08:13:30.171735"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T08:23:30.417690"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T08:25:30.322724"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T08:26:30.258462"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T09:00:30.307233"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T09:06:30.349103"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T09:36:30.193302"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T09:39:30.234990"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T09:58:30.194066"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T10:02:30.204381"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T10:21:30.199374"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T10:53:32.251310"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T10:55:32.325800"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T11:27:32.181844"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T11:29:31.966912"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T11:32:32.156690"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T11:43:31.964650"
+  },
+  {
+    "symbol": "EURUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T11:54:32.008413"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T12:12:32.037163"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T12:30:32.150397"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T13:24:32.017477"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T14:53:32.036621"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T15:22:32.053882"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T15:26:32.001410"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T15:28:32.118498"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T15:37:32.395982"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T16:10:32.184089"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T16:17:32.098178"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T16:17:33.475073"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T16:49:32.258802"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T16:53:32.315307"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T16:59:32.207337"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T17:15:32.209651"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T17:18:32.266859"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T17:29:32.263988"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T17:58:32.263376"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T18:01:32.225281"
+  },
+  {
+    "symbol": "EURGBP",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T18:52:32.304403"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T19:09:33.116719"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T19:20:32.317047"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T19:25:32.311241"
+  },
+  {
+    "symbol": "USDJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T19:34:32.304584"
+  },
+  {
+    "symbol": "AUDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T19:42:32.261880"
+  },
+  {
+    "symbol": "NZDUSD",
+    "direction": "SELL",
+    "score": 0.54,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T19:50:32.508921"
+  },
+  {
+    "symbol": "EURJPY",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T20:28:33.278082"
+  },
+  {
+    "symbol": "USDCAD",
+    "direction": "SELL",
+    "score": 0.57,
+    "result": "EXECUTED",
+    "profit": 0.0,
+    "timestamp": "2026-04-16T21:29:32.821653"
+  }
+]
