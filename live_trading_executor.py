@@ -8,7 +8,14 @@ import logging
 import time
 import json
 from datetime import datetime
-# import MetaTrader5 as mt5  # REMOVED - using Signal Bridge for Linux compatibility
+# Restored: this file is run on Windows with a live MT5 terminal (see
+# LOCAL_START_GUIDE.md). Several methods below (get_atr, and risk_manager's
+# volatility/correlation/global-risk checks) reference `mt5.*` directly but
+# had this import removed during an earlier Linux/Signal-Bridge experiment
+# without being rewired - they were silently raising NameError or failing
+# open. Trade execution itself still goes through the JSON signal bridge
+# below; this import only restores the market-data/risk-check helpers.
+import MetaTrader5 as mt5
 from signal_bridge import signal_bridge, send_signal, get_signal_status
 from signal_quality_engine import SignalQualityEngine
 from adaptive_threshold_engine import AdaptiveThresholdEngine
@@ -640,6 +647,18 @@ Bot: Nyx AI Level 6
         🔥 ATR FETCH - LEVEL 8 Smart Risk Engine
         """
         try:
+            # Accept either an MT5 TIMEFRAME_* constant or a string like 'M15'
+            # (callers in this file historically passed strings, which
+            # mt5.copy_rates_from_pos() does not accept directly).
+            if isinstance(timeframe, str):
+                tf_map = {
+                    'M1': mt5.TIMEFRAME_M1, 'M5': mt5.TIMEFRAME_M5,
+                    'M15': mt5.TIMEFRAME_M15, 'M30': mt5.TIMEFRAME_M30,
+                    'H1': mt5.TIMEFRAME_H1, 'H4': mt5.TIMEFRAME_H4,
+                    'D1': mt5.TIMEFRAME_D1,
+                }
+                timeframe = tf_map.get(timeframe.upper(), mt5.TIMEFRAME_M15)
+            
             rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, period + 1)
             
             if rates is None or len(rates) < period:
@@ -1087,7 +1106,7 @@ Bot: Nyx AI Level 6
         except Exception as e:
             logger.error(f"Error activating trailing stop: {e}")
         
-    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="EURUSD"):
+    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="XAUUSD", market_data=None):
         """Execute live trade with all safety checks"""
         
         # 🔧 LEVEL 10.3: VPS WATCHDOG CHECK
@@ -1169,22 +1188,32 @@ Bot: Nyx AI Level 6
             
             logger.info(f"✅ Trade data validation passed for {symbol}")
             
-            # � LEVEL 10.2: CREATE MARKET DATA FOR SIGNAL QUALITY
-            market_data = {
-                'ema_fast': atr_value * 0.001 if 'atr_value' in locals() else 0.001,  # Simplified EMA calculation
-                'ema_slow': atr_value * 0.002 if 'atr_value' in locals() else 0.002,  # Simplified EMA calculation
-                'rsi': 50 + (confidence - 70) * 0.5,  # Estimate RSI from confidence
-                'current_volume': 1.0,  # Default volume
-                'avg_volume': 0.8,     # Default average volume
-                'atr': atr_value if 'atr_value' in locals() else 0.001  # Use actual ATR
-            }
+            # LEVEL 10.2: MARKET DATA FOR SIGNAL QUALITY
+            # Prefer the REAL market_data computed by MultiPairLiveBot.get_signal()
+            # (real RSI/MAs/ATR from technical_analysis.py). Previously this was
+            # fabricated from `confidence` and an undefined `atr_value` (always
+            # fell back to hardcoded ema_fast=0.001/ema_slow=0.002), which made
+            # check_trend_alignment() below reject every BUY signal unconditionally
+            # since 0.001 < 0.002 was always true regardless of the real market.
+            if not market_data:
+                logger.warning(f"No real market_data supplied for {symbol} - "
+                                f"fetching a fresh ATR reading as a partial fallback")
+                fallback_atr = self.get_atr(symbol, 'M15', 14)
+                market_data = {
+                    'ema_fast': 0.0,
+                    'ema_slow': 0.0,
+                    'rsi': 50.0,
+                    'current_volume': 0.0,
+                    'avg_volume': 0.0,
+                    'atr': fallback_atr if fallback_atr else 0.0
+                }
             
             # 🔥 LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND
-            if market_data:
-                ema_fast = market_data.get('ema_fast', 0)
-                ema_slow = market_data.get('ema_slow', 0)
-                
-                # Check if trade aligns with trend
+            ema_fast = market_data.get('ema_fast', 0)
+            ema_slow = market_data.get('ema_slow', 0)
+            
+            if ema_fast and ema_slow:
+                # Check if trade aligns with trend using REAL MA values
                 trend_aligned, trend_msg = self.signal_engine.check_trend_alignment(
                     signal, ema_fast, ema_slow
                 )
@@ -1194,6 +1223,11 @@ Bot: Nyx AI Level 6
                     return False
                 
                 logger.info(f"✅ Trend alignment: {trend_msg}")
+            else:
+                # No real MA data available - don't fabricate a fake trend
+                # verdict, just skip the gate and note it in the logs.
+                trend_aligned = True
+                logger.warning(f"⚠️ No real MA data for {symbol} - trend alignment check skipped")
             
             # LEVEL 7: TRADE SCORING SYSTEM
             logger.info(f"🎯 Calculating trade score for {symbol}...")

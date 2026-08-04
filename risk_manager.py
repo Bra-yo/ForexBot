@@ -4,7 +4,13 @@ Handles correlation, exposure, session filtering, and volatility checks
 """
 
 import time
-# import MetaTrader5 as mt5  # REMOVED - using Signal Bridge for Linux compatibility
+# Restored: every method in this class (check_volatility_filter,
+# check_correlation_control, check_global_risk, get_atr_value,
+# get_portfolio_summary) calls mt5.* directly, but this import was removed
+# during a Linux/Signal-Bridge experiment without updating the method
+# bodies - they were silently raising NameError (or, where wrapped in a
+# try/except, failing open and skipping the safety check entirely).
+import MetaTrader5 as mt5
 from datetime import datetime
 from config import *
 

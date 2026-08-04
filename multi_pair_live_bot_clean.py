@@ -8,6 +8,7 @@ import sys
 import time
 import signal
 import logging
+import pandas as pd
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import MetaTrader5 as mt5
@@ -15,6 +16,8 @@ import MetaTrader5 as mt5
 # Import our components
 from live_trading_executor import LiveTradingExecutor
 from bot_controller import BotController
+from technical_analysis import TechnicalAnalysis
+from brokers.mt5_connector import MT5Connector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -85,8 +88,11 @@ class MultiPairLiveBot:
         signal.signal(signal.SIGTERM, self.signal_handler)
         
         # Trading configuration
-        # Multi-pair configuration
-        self.all_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'EURGBP', 'EURJPY', 'GBPJPY', 'NZDUSD', 'EURCHF']
+        # GOLD-ONLY CONFIGURATION (pivoted from 10-pair Forex scanning)
+        # NOTE: some brokers list this symbol with a suffix, e.g. "XAUUSDm" or
+        # "GOLD#". If _get_available_symbols() below comes back empty, check
+        # the exact symbol name in your MT5 Market Watch and update this.
+        self.all_symbols = ['XAUUSD']
         
         # LEVEL 7: Filter available symbols at startup
         self.symbols = self._get_available_symbols()
@@ -103,6 +109,13 @@ class MultiPairLiveBot:
         
         # Trading state
         self.is_running = False
+        
+        # REAL SIGNAL ENGINE (replaces the old random.random() stub).
+        # MT5Connector wraps the same MT5 terminal connection this bot already
+        # uses; TechnicalAnalysis computes real RSI/MACD/EMA/ATR/structure
+        # levels and combines them into an actual market analysis.
+        self.mt5_connector = MT5Connector()
+        self.ta = TechnicalAnalysis()
         
     def _get_available_symbols(self):
         """LEVEL 7: Check which symbols are available on the broker"""
@@ -162,6 +175,12 @@ class MultiPairLiveBot:
             logger.info(f"Connected to account: {account_info.login}")
             logger.info(f"Balance: ${account_info.balance:,.2f}")
             
+            # Initialize the connector wrapper used for real signal generation
+            # (shares the same underlying MT5 terminal connection above)
+            if not self.mt5_connector.initialize():
+                logger.warning("MT5Connector wrapper failed to initialize - "
+                                "signal generation will be degraded")
+            
             # Initialize live executor
             if self.live_executor:
                 self.live_executor.is_running = True
@@ -174,23 +193,81 @@ class MultiPairLiveBot:
             return False
     
     def get_signal(self, symbol, timeframe):
-        """Get trading signal for symbol and timeframe"""
+        """
+        Get a REAL trading signal for symbol and timeframe.
+
+        Replaces the previous random.random() stub. Pulls actual OHLC data,
+        computes real indicators (RSI/MACD/MAs/Bollinger/Stochastic), and
+        runs the full professional analysis pipeline (HTF trend, market
+        condition, structure-based SL/TP, entry confirmation, risk:reward,
+        confidence scoring) that already existed in technical_analysis.py
+        but was never wired into the live path.
+
+        Returns:
+            (signal, confidence, analysis) where signal is 'BUY'/'SELL'/None,
+            confidence is 0-100, and analysis is the full result dict from
+            TechnicalAnalysis.advanced_signal_analysis() (or None on failure).
+            analysis['market_data'] carries real ema_fast/ema_slow/rsi/volume/
+            atr values for the downstream signal-quality and trend checks in
+            live_trading_executor.py.
+        """
         try:
-            # This is where you'd integrate your signal generation system
-            # For now, return dummy signals for testing
-            import random
-            
-            # Simulate signal generation
-            if random.random() > 0.7:  # 30% chance of signal
-                signal = "BUY" if random.random() > 0.5 else "SELL"
-                confidence = random.uniform(60, 95)
-                return signal, confidence
-            else:
-                return None, 0
-                
+            timeframe_name = self.timeframe_names.get(timeframe, 'M15')
+
+            # Enough history for indicators (BB/MACD/structure) to stabilize,
+            # padded generously to survive weekend/holiday gaps.
+            lookback_days = {'M15': 10, 'M30': 20, 'H1': 40}.get(timeframe_name, 10)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=lookback_days)
+
+            data = self.mt5_connector.get_historical_data(
+                symbol=symbol,
+                timeframe=timeframe_name,
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            if data is None or data.empty or len(data) < 60:
+                logger.warning(f"Insufficient market data for {symbol} {timeframe_name} "
+                                f"({0 if data is None else len(data)} candles)")
+                return None, 0, None
+
+            # Real indicators
+            data = self.ta.get_all_indicators(data)
+
+            # Full professional signal analysis (real HTF trend, market
+            # condition, structure levels, entry confirmation, R:R, confidence)
+            analysis = self.ta.advanced_signal_analysis(
+                self.mt5_connector, data, symbol, timeframe_name
+            )
+
+            # Build real market_data for the signal-quality/trend-alignment
+            # checks in live_trading_executor.py (previously fabricated from
+            # a random confidence number - see execute_live_trade).
+            latest = data.iloc[-1]
+            market_condition = self.ta.detect_market_condition(data)
+            avg_volume = data['volume'].rolling(20).mean().iloc[-1] if 'volume' in data.columns else None
+
+            analysis['market_data'] = {
+                'ema_fast': float(latest['ma_fast']) if pd.notna(latest.get('ma_fast')) else 0.0,
+                'ema_slow': float(latest['ma_slow']) if pd.notna(latest.get('ma_slow')) else 0.0,
+                'rsi': float(latest['rsi']) if pd.notna(latest.get('rsi')) else 50.0,
+                'current_volume': float(latest['volume']) if pd.notna(latest.get('volume')) else 0.0,
+                'avg_volume': float(avg_volume) if avg_volume is not None and pd.notna(avg_volume) else 0.0,
+                'atr': float(market_condition.get('atr', 0) or 0),
+            }
+
+            signal = analysis.get('signal')
+            confidence = analysis.get('confidence', 0)
+
+            if signal not in ('BUY', 'SELL') or analysis.get('trade_blocked', True):
+                return None, confidence, analysis
+
+            return signal, confidence, analysis
+
         except Exception as e:
             logger.error(f"Signal generation error for {symbol}: {e}")
-            return None, 0
+            return None, 0, None
     
     def run_analysis_cycle(self):
         """Run multi-pair analysis cycle"""
@@ -211,11 +288,11 @@ class MultiPairLiveBot:
                 # Analyze each timeframe
                 for timeframe in [mt5.TIMEFRAME_M15, mt5.TIMEFRAME_M30, mt5.TIMEFRAME_H1]:
                     try:
-                        # Get signal from your signal generation system
-                        signal, confidence = self.get_signal(symbol, timeframe)
+                        # Get real signal from the technical analysis engine
+                        signal, confidence, analysis = self.get_signal(symbol, timeframe)
                         
                         if signal and confidence > 50:  # Minimum confidence threshold
-                            symbol_signals.append((signal, confidence, timeframe))
+                            symbol_signals.append((signal, confidence, timeframe, analysis))
                             logger.debug(f"Signal found: {symbol} {signal} @ {confidence:.1f}%")
                             
                     except Exception as e:
@@ -226,7 +303,7 @@ class MultiPairLiveBot:
                 if symbol_signals:
                     # Sort by confidence and take the best
                     best_signal = max(symbol_signals, key=lambda x: x[1])
-                    signal, confidence, timeframe = best_signal
+                    signal, confidence, timeframe, analysis = best_signal
                     
                     logger.info(f"🎯 Best signal for {symbol}: {signal} @ {confidence:.1f}% ({self.timeframe_names[timeframe]})")
                     
@@ -271,15 +348,24 @@ class MultiPairLiveBot:
                     
                     logger.info(f"💰 Entry price for {symbol}: {entry_price:.5f}")
                     
+                    # Use the real structure-based SL/TP from advanced_signal_analysis
+                    # when available; otherwise let the executor calculate a
+                    # fallback (e.g. for the "weak signal" path, which doesn't
+                    # compute structure levels). 0/None means "not available".
+                    real_sl = analysis.get('structure_sl') if analysis else None
+                    real_tp = analysis.get('structure_tp') if analysis else None
+                    real_market_data = analysis.get('market_data') if analysis else None
+                    
                     logger.info(f"🚀 Calling execute_live_trade for {symbol}...")
                     success = self.live_executor.execute_live_trade(
                         signal=signal,
                         confidence=confidence,
                         entry_price=entry_price,
-                        stop_loss=None,    # Will be calculated in executor
-                        take_profit=None, # Will be calculated in executor
+                        stop_loss=real_sl or None,
+                        take_profit=real_tp or None,
                         lot_size=0.01,   # Default lot size
-                        symbol=symbol
+                        symbol=symbol,
+                        market_data=real_market_data
                     )
                     
                     logger.info(f"📊 Trade execution result for {symbol}: {success}")
@@ -326,8 +412,8 @@ class MultiPairLiveBot:
             # Send startup notification
             if self.telegram:
                 self.telegram.send_message(
-                    f"🚀 NYX AI Multi-Pair Trading Started\n\n"
-                    f"Symbols: {len(self.symbols)} pairs\n"
+                    f"🚀 NYX AI Gold Trading Started\n\n"
+                    f"Symbol: XAUUSD (Gold)\n"
                     f"Timeframes: M15, M30, H1\n"
                     f"Process ID: {os.getpid()}\n"
                     f"Status: ACTIVE\n"
@@ -410,26 +496,25 @@ def main():
     print("   [OK] Account is DEMO (not real money)")
     print("   [OK] Lot size is capped at 0.5")
     print("   [OK] Max 3 open trades per symbol")
-    print("   [OK] 30-minute position timeout")
+    print(f"   [OK] {MAX_TRADE_DURATION_MINUTES}-minute position timeout")
     print("   [OK] Spread filter (max 5.0 pips)")
     print("   [OK] Trading hours filter (6:00-20:00)")
     print("   [OK] Weekend protection")
-    print("   [OK] Multiple pairs: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, EURGBP, EURJPY, GBPJPY, NZDUSD, EURCHF")  # Revert to static list for safety check
+    print("   [OK] Symbol: XAUUSD (Gold) - pivoted from multi-pair Forex")
     print("   [OK] Multiple timeframes: M15, M30, H1")
     
     print("\nNYX AI RISK WARNING")
-    print("   Nyx AI watches markets 24/7 across all pairs")
+    print("   Nyx AI watches the Gold (XAUUSD) market 24/7")
     print("   Higher exposure = Higher risk")
-    print("   Monitor ALL positions closely")
+    print("   Monitor open positions closely")
     print("   Stop immediately if issues occur")
-    print("   Each pair will trade independently")
     
     print("\nSTARTING NYX AI LIVE TRADING")
     print(f"   Time: {datetime.now().strftime('%H:%M:%S')}")
-    print("   Symbols: Up to 10 major currency pairs (will filter available)")  # LEVEL 7: Fix bot reference issue
+    print("   Symbol: XAUUSD (Gold)")
     print("   Timeframes: M15, M30, H1")
     print("   Cycle: Every 1 minute")
-    print("   Max concurrent trades: 30 (3 per symbol)")
+    print("   Max concurrent trades: 3")
     
     confirm = input("\n   Type 'NYX-START' to begin multi-pair live trading: ")
     if confirm.upper() != 'NYX-START':
@@ -443,7 +528,7 @@ def main():
     
     # LEVEL 7: Show actual available symbols after bot creation
     print(f"✅ Available symbols: {', '.join(bot.symbols)}")
-    print(f"📊 Will trade {len(bot.symbols)} pairs instead of unavailable ones")
+    print(f"📊 Trading {len(bot.symbols)} symbol(s): Gold (XAUUSD)")
     
     try:
         # Start trading

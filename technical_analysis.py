@@ -386,22 +386,26 @@ class TechnicalAnalysis:
                     reasons.append(f"RSI overbought ({latest['rsi']:.2f})")
             
             # 4. MOVING AVERAGE CROSSOVER
-            if 'sma_fast' in data.columns and 'sma_slow' in data.columns:
-                if pd.notna(latest.get('sma_fast')) and pd.notna(latest.get('sma_slow')):
-                    prev_sma_fast = data['sma_fast'].iloc[-2]
-                    prev_sma_slow = data['sma_slow'].iloc[-2]
+            # NOTE: get_all_indicators() creates columns named 'ma_fast'/'ma_slow'
+            # (see calculate_moving_averages above), not 'sma_fast'/'sma_slow'.
+            # This mismatch meant this signal component never fired for any
+            # data produced by get_all_indicators().
+            if 'ma_fast' in data.columns and 'ma_slow' in data.columns:
+                if pd.notna(latest.get('ma_fast')) and pd.notna(latest.get('ma_slow')):
+                    prev_sma_fast = data['ma_fast'].iloc[-2]
+                    prev_sma_slow = data['ma_slow'].iloc[-2]
                     
                     # Golden cross (BUY signal)
                     if (prev_sma_fast <= prev_sma_slow and 
-                        latest['sma_fast'] > latest['sma_slow']):
+                        latest['ma_fast'] > latest['ma_slow']):
                         signals.append('BUY')
-                        reasons.append("Golden cross (Fast SMA above Slow SMA)")
+                        reasons.append("Golden cross (Fast MA above Slow MA)")
                     
                     # Death cross (SELL signal)
                     elif (prev_sma_fast >= prev_sma_slow and 
-                          latest['sma_fast'] < latest['sma_slow']):
+                          latest['ma_fast'] < latest['ma_slow']):
                         signals.append('SELL')
-                        reasons.append("Death cross (Fast SMA below Slow SMA)")
+                        reasons.append("Death cross (Fast MA below Slow MA)")
             
             # 5. MACD CROSSOVER
             if 'macd' in data.columns and 'macd_signal' in data.columns:
