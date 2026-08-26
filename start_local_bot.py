@@ -9,14 +9,27 @@ import logging
 import MetaTrader5 as mt5
 from datetime import datetime
 
+# Windows' console (cp1252) can't encode the emoji used throughout this
+# codebase's log messages, which was causing a "Logging error" + traceback
+# printed for nearly every single log line. This must happen here, before
+# logging.basicConfig() below, because this file is the true entry point -
+# it's the first thing that runs, and logging.basicConfig() is a documented
+# no-op if the root logger already has handlers (which is exactly what was
+# silently breaking the same fix when it was placed in multi_pair_live_bot_
+# clean.py instead, since that module is imported much later).
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('local_bot.log')
-    ]
+        logging.FileHandler('local_bot.log', encoding='utf-8')
+    ],
+    force=True  # belt-and-suspenders: override any handler set up earlier
 )
 
 logger = logging.getLogger(__name__)

@@ -30,7 +30,8 @@ class BacktestEngine:
                      data: pd.DataFrame, 
                      strategy_func,
                      commission: float = 0.0002,
-                     slippage: float = 0.0001) -> Dict:
+                     slippage: float = 0.0001,
+                     max_duration_minutes: float = None) -> Dict:
         """
         Run backtest on historical data
         
@@ -39,6 +40,10 @@ class BacktestEngine:
             strategy_func: Function that returns trading signals
             commission: Trading commission per trade
             slippage: Price slippage per trade
+            max_duration_minutes: If set, force-close any position still open
+                after this many minutes (matches a live time-based timeout,
+                e.g. MultiPairLiveBot's MAX_TRADE_DURATION_MINUTES). None
+                means no time-based exit - only stop_loss/take_profit.
             
         Returns:
             Backtest results dictionary
@@ -55,6 +60,15 @@ class BacktestEngine:
         for i in range(len(data)):
             current_candle = data.iloc[i]
             current_time = data.index[i]
+            
+            # Check exit conditions (stop_loss/take_profit/max duration) for
+            # any already-open position BEFORE evaluating new signals - the
+            # engine previously never did this at all, so every trade simply
+            # rode from entry to the very last candle of the whole dataset
+            # regardless of its stop_loss/take_profit, which made results
+            # meaningless (one trade, "held" for however long the remaining
+            # data happened to span).
+            self._check_exit_conditions(current_candle, current_time, slippage, max_duration_minutes)
             
             # Get strategy signal
             signal = strategy_func(data.iloc[:i+1])
@@ -73,6 +87,75 @@ class BacktestEngine:
         
         return self._get_results()
     
+    def _check_exit_conditions(self, candle: pd.Series, current_time, slippage: float, max_duration_minutes: float = None):
+        """
+        Check every open position against its stop_loss/take_profit (using
+        this candle's high/low, since price can touch a level intra-candle
+        even if the close doesn't) and, if given, a max holding duration.
+        If both stop_loss and take_profit are within this candle's range,
+        assume stop_loss was hit first - the standard conservative
+        assumption when candle-level (not tick-level) data can't tell you
+        the actual intra-candle path.
+        """
+        for pair, pos in list(self.positions.items()):
+            exit_price = None
+            reason = None
+
+            if pos['action'] == 'BUY':
+                sl_hit = candle['low'] <= pos['stop_loss']
+                tp_hit = candle['high'] >= pos['take_profit']
+                if sl_hit:
+                    exit_price, reason = pos['stop_loss'], 'stop_loss'
+                elif tp_hit:
+                    exit_price, reason = pos['take_profit'], 'take_profit'
+            else:  # SELL
+                sl_hit = candle['high'] >= pos['stop_loss']
+                tp_hit = candle['low'] <= pos['take_profit']
+                if sl_hit:
+                    exit_price, reason = pos['stop_loss'], 'stop_loss'
+                elif tp_hit:
+                    exit_price, reason = pos['take_profit'], 'take_profit'
+
+            if exit_price is None and max_duration_minutes is not None:
+                held_minutes = (current_time - pos['entry_time']).total_seconds() / 60.0
+                if held_minutes >= max_duration_minutes:
+                    exit_price, reason = candle['close'], 'max_duration'
+
+            if exit_price is not None:
+                self._close_position(pair, exit_price, current_time, slippage, reason)
+
+    def _close_position(self, pair: str, exit_price: float, exit_time, slippage: float, reason: str):
+        """Close a single open position and record the trade."""
+        pos = self.positions.pop(pair)
+        exit_price = exit_price * (1 - slippage if pos['action'] == 'BUY' else 1 + slippage)
+
+        if pos['action'] == 'BUY':
+            pnl = (exit_price - pos['entry_price']) * pos['size']
+        else:
+            pnl = (pos['entry_price'] - exit_price) * pos['size']
+
+        # Net commission out of the recorded P&L (commission was already
+        # deducted from self.balance once, at open time, in _execute_signal -
+        # this does NOT double-charge it, it just makes the *recorded* pnl
+        # match what actually happened to the account, instead of every
+        # downstream metric silently ignoring commission entirely).
+        net_pnl = pnl - pos['commission']
+
+        self.trades.append({
+            'pair': pair,
+            'action': pos['action'],
+            'entry_price': pos['entry_price'],
+            'exit_price': exit_price,
+            'entry_time': pos['entry_time'],
+            'exit_time': exit_time,
+            'size': pos['size'],
+            'pnl': net_pnl,
+            'commission': pos['commission'],
+            'exit_reason': reason,
+            'duration': (exit_time - pos['entry_time']).total_seconds() / 3600,  # hours
+        })
+        self.balance += pnl
+
     def _execute_signal(self, signal: Dict, candle: pd.Series, commission: float, slippage: float):
         """Execute trading signal"""
         action = signal.get('action', 'WAIT')
@@ -146,7 +229,14 @@ class BacktestEngine:
                 pnl = (exit_price - pos['entry_price']) * pos['size']
             else:
                 pnl = (pos['entry_price'] - exit_price) * pos['size']
-            
+
+            # Same commission fix as _close_position(): commission was
+            # already deducted from self.balance at open time, so record the
+            # NET pnl (matching what actually happened to the account)
+            # rather than the raw pre-commission figure every metric was
+            # silently being computed from.
+            net_pnl = pnl - pos['commission']
+
             # Record trade
             self.trades.append({
                 'pair': pair,
@@ -156,8 +246,9 @@ class BacktestEngine:
                 'entry_time': pos['entry_time'],
                 'exit_time': last_candle.name,
                 'size': pos['size'],
-                'pnl': pnl,
+                'pnl': net_pnl,
                 'commission': pos['commission'],
+                'exit_reason': 'end_of_data',
                 'duration': (last_candle.name - pos['entry_time']).total_seconds() / 3600  # hours
             })
             
@@ -189,6 +280,21 @@ class BacktestEngine:
         # Basic metrics
         total_pnl = sum(t['pnl'] for t in self.trades)
         total_return_pct = (total_pnl / self.initial_balance) * 100
+
+        # Cross-check against the real account balance rather than trusting
+        # this sum blindly - this is exactly the kind of mismatch that went
+        # undetected all session (commission deducted from self.balance at
+        # open, but never netted into the recorded pnl, so every printed
+        # "Total Return" was wrong while the balance itself was fine).
+        actual_return = self.balance - self.initial_balance
+        if abs(total_pnl - actual_return) > 0.01:
+            print(f"⚠️ WARNING: sum(trade pnl)=${total_pnl:.2f} does not match "
+                  f"actual balance change=${actual_return:.2f} (diff=${total_pnl - actual_return:.2f}). "
+                  f"Using the real balance-based figure for Total Return - "
+                  f"this mismatch means something else isn't accounting for "
+                  f"P&L correctly and is worth investigating.")
+            total_pnl = actual_return
+            total_return_pct = (total_pnl / self.initial_balance) * 100
         
         # Win/Loss analysis
         wins = [t['pnl'] for t in self.trades if t['pnl'] > 0]
@@ -313,8 +419,14 @@ class BacktestEngine:
         
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        
-        plt.show()
+            plt.close()  # Never call show() when saving to a file - this was
+            # blocking indefinitely on plt.show()'s Tkinter mainloop with
+            # nobody there to close the popup window, in a script meant to
+            # run multiple backtests back-to-back unattended. That's why
+            # the M15/M30/H1 comparison run appeared to hang after M15 -
+            # it wasn't stuck, it was waiting for a window nobody knew existed.
+        else:
+            plt.show()
     
     def print_summary(self, results: Dict):
         """Print backtest summary"""

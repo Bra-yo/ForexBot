@@ -20,11 +20,30 @@ from technical_analysis import TechnicalAnalysis
 from brokers.mt5_connector import MT5Connector
 
 # Configure logging
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    # Windows' console defaults to cp1252, which can't encode the emoji used
+    # throughout this codebase's log messages (✅, 🔧, 📊, ...). That was
+    # causing a "Logging error" + traceback printed for nearly every log line
+    # (non-fatal, but very noisy and could bury a real error in the clutter).
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Trade timeout configuration
-MAX_TRADE_DURATION_MINUTES = 10
+# Disabled (was 10 minutes) - backtesting (run_gold_backtest.py) showed the
+# 10-minute force-close was actively harmful: it cut trades off long before
+# they could reach their real structure-based take-profit, turning a
+# profitable setup (+10.27% over 1 month with no time cap) into a losing one
+# (-28.23% with the 10-min cap forcing near-instant exits on nearly every
+# trade). Positions remain protected either way: the MQL5 EA (mt5/NyxEA.mq5)
+# sets stop_loss/take_profit as REAL broker-side order levels via
+# trade.Buy()/trade.Sell(), independent of whether this Python process is
+# even running - this timeout was an additional software-side cap on top of
+# that, not the only protection. Set to a number (minutes) to re-enable a
+# cap once you've validated hold times over a longer backtest window.
+MAX_TRADE_DURATION_MINUTES = None
 
 def manage_open_trades():
     """Close trades that exceed maximum duration"""
@@ -39,7 +58,7 @@ def manage_open_trades():
         open_time = datetime.fromtimestamp(pos.time)
         duration = (now - open_time).total_seconds() / 60
         
-        if duration > MAX_TRADE_DURATION_MINUTES:  # 🔥 CHANGE TO 10 MINUTES
+        if MAX_TRADE_DURATION_MINUTES is not None and duration > MAX_TRADE_DURATION_MINUTES:
             logger.info(f"⏰ Closing expired trade: {pos.symbol} (open for {duration:.1f} mins)")
             
             close_request = {
@@ -99,9 +118,13 @@ class MultiPairLiveBot:
         logger.info(f"Available symbols for trading: {self.symbols}")
         
         self.timeframe_names = {
+            mt5.TIMEFRAME_M1: "M1",
+            mt5.TIMEFRAME_M5: "M5",
             mt5.TIMEFRAME_M15: "M15",
-            mt5.TIMEFRAME_M30: "M30", 
-            mt5.TIMEFRAME_H1: "H1"
+            mt5.TIMEFRAME_M30: "M30",
+            mt5.TIMEFRAME_H1: "H1",
+            mt5.TIMEFRAME_H4: "H4",
+            mt5.TIMEFRAME_D1: "D1"
         }
         
         # Track last analysis time per symbol/timeframe
@@ -216,7 +239,9 @@ class MultiPairLiveBot:
 
             # Enough history for indicators (BB/MACD/structure) to stabilize,
             # padded generously to survive weekend/holiday gaps.
-            lookback_days = {'M15': 10, 'M30': 20, 'H1': 40}.get(timeframe_name, 10)
+            lookback_days = {
+                'M1': 2, 'M5': 5, 'M15': 10, 'M30': 20, 'H1': 40, 'H4': 60, 'D1': 200
+            }.get(timeframe_name, 10)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=lookback_days)
 
@@ -270,7 +295,17 @@ class MultiPairLiveBot:
             return None, 0, None
     
     def run_analysis_cycle(self):
-        """Run multi-pair analysis cycle"""
+        """Run multi-pair analysis cycle.
+        
+        Evaluates M1/M5/M15/M30/H1/H4/D1 as INDEPENDENT, potentially-simultaneous
+        opportunities rather than picking a single "best" signal per symbol
+        per cycle. Each qualifying timeframe gets its own trade attempt;
+        real concurrency is bounded by LiveTradingExecutor's
+        _check_trade_limit_per_pair (now 3, matching one slot per
+        timeframe) plus every other existing safety check (session,
+        drawdown, equity, trend alignment), which each independently apply
+        per attempt exactly as before.
+        """
         trades_executed = 0
         trades_attempted = 0
         
@@ -282,101 +317,111 @@ class MultiPairLiveBot:
             
             # Analyze each symbol
             for symbol in self.symbols:
-                symbol_trades = 0
-                symbol_signals = []
-                
-                # Analyze each timeframe
-                for timeframe in [mt5.TIMEFRAME_M15, mt5.TIMEFRAME_M30, mt5.TIMEFRAME_H1]:
+                # Analyze each timeframe independently - each qualifying
+                # signal gets its own trade attempt, rather than comparing
+                # all three and only acting on the single highest-confidence
+                # one.
+                # NOTE: M1 is included per explicit request, but it's the
+                # highest-risk addition here - at 1-minute granularity the
+                # spread filter (max 5 pips) eats a much larger share of a
+                # typical move, and RSI/MACD-style indicators tend to
+                # whipsaw more at this timescale than they do on M15+.
+                # Worth watching M1's real win rate separately from the rest
+                # once trades start landing.
+                for timeframe in [mt5.TIMEFRAME_M5]:
+                    # Narrowed from all 7 (M1/M5/M15/M30/H1/H4/D1) to M5 only,
+                    # based on the 6-month backtest comparison: M5 was the clear
+                    # standout (135% return, 1.50 profit factor, 9.85% max
+                    # drawdown, 174 trades - a real sample size, consistent
+                    # across 6 of 7 months). M1 lost money and had severe
+                    # drawdown; H1/H4/D1 had too few trades to trust; M15/M30
+                    # were positive but weaker. Revisit this list if you want
+                    # to re-test combinations later.
                     try:
                         # Get real signal from the technical analysis engine
                         signal, confidence, analysis = self.get_signal(symbol, timeframe)
                         
-                        if signal and confidence > 50:  # Minimum confidence threshold
-                            symbol_signals.append((signal, confidence, timeframe, analysis))
-                            logger.debug(f"Signal found: {symbol} {signal} @ {confidence:.1f}%")
+                        if not (signal and confidence > 50):  # Minimum confidence threshold
+                            continue
+                        
+                        logger.info(f"🎯 Signal for {symbol}: {signal} @ {confidence:.1f}% ({self.timeframe_names[timeframe]})")
+                        
+                        # Execute trade
+                        trades_attempted += 1
+                        
+                        logger.info(f"🔍 Attempting to execute trade for {symbol} ({self.timeframe_names[timeframe]})...")
+                        
+                        # Get current price for entry
+                        # LEVEL 7: Enhanced symbol validation with connection check
+                        try:
+                            logger.info(f"📊 Checking MT5 connection for {symbol}...")
+                            if not mt5.initialize():
+                                logger.error("MT5 connection lost - reinitializing...")
+                                if not mt5.initialize():
+                                    logger.error("Failed to reinitialize MT5")
+                                    continue
+                            
+                            logger.info(f"🔍 Getting symbol info for {symbol}...")
+                            symbol_info = mt5.symbol_info(symbol)
+                            if not symbol_info:
+                                logger.warning(f"Symbol {symbol} not found on broker - skipping")
+                                continue
+                            
+                            if not symbol_info.visible:
+                                logger.warning(f"Symbol {symbol} not visible/enabled - skipping")
+                                continue
+                            
+                            logger.info(f"📈 Getting tick data for {symbol}...")
+                            tick = mt5.symbol_info_tick(symbol)
+                            if not tick:
+                                logger.warning(f"No tick data for {symbol} - market may be closed")
+                                continue
+                            
+                            logger.info(f"✅ Symbol validation passed for {symbol}")
+                                
+                        except Exception as e:
+                            logger.error(f"Error getting symbol data for {symbol}: {e}")
+                            continue
+                            
+                        entry_price = tick.ask if signal == "BUY" else tick.bid
+                        
+                        logger.info(f"💰 Entry price for {symbol}: {entry_price:.5f}")
+                        
+                        # Use the real structure-based SL/TP from advanced_signal_analysis
+                        # when available; otherwise let the executor calculate a
+                        # fallback (e.g. for the "weak signal" path, which doesn't
+                        # compute structure levels). 0/None means "not available".
+                        real_sl = analysis.get('structure_sl') if analysis else None
+                        real_tp = analysis.get('structure_tp') if analysis else None
+                        real_market_data = analysis.get('market_data') if analysis else None
+                        
+                        logger.info(f"🚀 Calling execute_live_trade for {symbol}...")
+                        success = self.live_executor.execute_live_trade(
+                            signal=signal,
+                            confidence=confidence,
+                            entry_price=entry_price,
+                            stop_loss=real_sl or None,
+                            take_profit=real_tp or None,
+                            lot_size=0.01,   # Default lot size
+                            symbol=symbol,
+                            market_data=real_market_data,
+                            # real_sl/real_tp (when present) already came from
+                            # advanced_signal_analysis(), which validates R:R >= 2.0
+                            # internally at signal-generation time - re-deriving R:R
+                            # downstream against a freshly-fetched live price was
+                            # silently invalidating good signals as price drifted
+                            # between signal and execution.
+                            skip_rr_recheck=bool(real_sl and real_tp)
+                        )
+                        
+                        logger.info(f"📊 Trade execution result for {symbol} ({self.timeframe_names[timeframe]}): {success}")
+                        
+                        if success:
+                            trades_executed += 1
                             
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol} {self.timeframe_names[timeframe]}: {e}")
                         continue
-                
-                # Select best signal for this symbol
-                if symbol_signals:
-                    # Sort by confidence and take the best
-                    best_signal = max(symbol_signals, key=lambda x: x[1])
-                    signal, confidence, timeframe, analysis = best_signal
-                    
-                    logger.info(f"🎯 Best signal for {symbol}: {signal} @ {confidence:.1f}% ({self.timeframe_names[timeframe]})")
-                    
-                    # Execute trade
-                    trades_attempted += 1
-                    
-                    logger.info(f"🔍 Attempting to execute trade for {symbol}...")
-                    
-                    # Get current price for entry
-                    # LEVEL 7: Enhanced symbol validation with connection check
-                    try:
-                        logger.info(f"📊 Checking MT5 connection for {symbol}...")
-                        if not mt5.initialize():
-                            logger.error("MT5 connection lost - reinitializing...")
-                            if not mt5.initialize():
-                                logger.error("Failed to reinitialize MT5")
-                                continue
-                        
-                        logger.info(f"🔍 Getting symbol info for {symbol}...")
-                        symbol_info = mt5.symbol_info(symbol)
-                        if not symbol_info:
-                            logger.warning(f"Symbol {symbol} not found on broker - skipping")
-                            continue
-                        
-                        if not symbol_info.visible:
-                            logger.warning(f"Symbol {symbol} not visible/enabled - skipping")
-                            continue
-                        
-                        logger.info(f"📈 Getting tick data for {symbol}...")
-                        tick = mt5.symbol_info_tick(symbol)
-                        if not tick:
-                            logger.warning(f"No tick data for {symbol} - market may be closed")
-                            continue
-                        
-                        logger.info(f"✅ Symbol validation passed for {symbol}")
-                            
-                    except Exception as e:
-                        logger.error(f"Error getting symbol data for {symbol}: {e}")
-                        continue
-                        
-                    entry_price = tick.ask if signal == "BUY" else tick.bid
-                    
-                    logger.info(f"💰 Entry price for {symbol}: {entry_price:.5f}")
-                    
-                    # Use the real structure-based SL/TP from advanced_signal_analysis
-                    # when available; otherwise let the executor calculate a
-                    # fallback (e.g. for the "weak signal" path, which doesn't
-                    # compute structure levels). 0/None means "not available".
-                    real_sl = analysis.get('structure_sl') if analysis else None
-                    real_tp = analysis.get('structure_tp') if analysis else None
-                    real_market_data = analysis.get('market_data') if analysis else None
-                    
-                    logger.info(f"🚀 Calling execute_live_trade for {symbol}...")
-                    success = self.live_executor.execute_live_trade(
-                        signal=signal,
-                        confidence=confidence,
-                        entry_price=entry_price,
-                        stop_loss=real_sl or None,
-                        take_profit=real_tp or None,
-                        lot_size=0.01,   # Default lot size
-                        symbol=symbol,
-                        market_data=real_market_data
-                    )
-                    
-                    logger.info(f"📊 Trade execution result for {symbol}: {success}")
-                    
-                    if success:
-                        trades_executed += 1
-                        symbol_trades += 1
-                
-                # Limit trades per symbol
-                if symbol_trades >= 1:  # Max 1 trade per symbol per cycle
-                    continue
                     
         except Exception as e:
             logger.error(f"Analysis cycle error: {e}")
@@ -414,7 +459,7 @@ class MultiPairLiveBot:
                 self.telegram.send_message(
                     f"🚀 NYX AI Gold Trading Started\n\n"
                     f"Symbol: XAUUSD (Gold)\n"
-                    f"Timeframes: M15, M30, H1\n"
+                    f"Timeframes: M1, M5, M15, M30, H1, H4, D1\n"
                     f"Process ID: {os.getpid()}\n"
                     f"Status: ACTIVE\n"
                     f"Control: STOP NYX to stop via Telegram"
@@ -490,37 +535,12 @@ def main():
     TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
     TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
     
-    # Safety confirmation
-    print("\n🛡️  **NYX AI SAFETY CHECK**")
-    print("   [OK] MT5 Terminal is running")
-    print("   [OK] Account is DEMO (not real money)")
-    print("   [OK] Lot size is capped at 0.5")
-    print("   [OK] Max 3 open trades per symbol")
-    print(f"   [OK] {MAX_TRADE_DURATION_MINUTES}-minute position timeout")
-    print("   [OK] Spread filter (max 5.0 pips)")
-    print("   [OK] Trading hours filter (6:00-20:00)")
-    print("   [OK] Weekend protection")
-    print("   [OK] Symbol: XAUUSD (Gold) - pivoted from multi-pair Forex")
-    print("   [OK] Multiple timeframes: M15, M30, H1")
-    
-    print("\nNYX AI RISK WARNING")
-    print("   Nyx AI watches the Gold (XAUUSD) market 24/7")
-    print("   Higher exposure = Higher risk")
-    print("   Monitor open positions closely")
-    print("   Stop immediately if issues occur")
-    
-    print("\nSTARTING NYX AI LIVE TRADING")
-    print(f"   Time: {datetime.now().strftime('%H:%M:%S')}")
-    print("   Symbol: XAUUSD (Gold)")
-    print("   Timeframes: M15, M30, H1")
-    print("   Cycle: Every 1 minute")
-    print("   Max concurrent trades: 3")
-    
-    confirm = input("\n   Type 'NYX-START' to begin multi-pair live trading: ")
-    if confirm.upper() != 'NYX-START':
-        print("❌ Nyx AI multi-pair trading cancelled")
-        return
-    
+    # Safety confirmation already happened one call frame up, in
+    # start_multi_pair_trading_fixed.main() - this used to ask again with a
+    # second NYX-START prompt (its own separate banner), forcing you to
+    # confirm twice for one bot start. Reduced to a log line.
+    logger.info(f"Starting NYX AI live trading: XAUUSD, M1/M5/M15/M30/H1/H4/D1, "
+                f"{'no' if MAX_TRADE_DURATION_MINUTES is None else MAX_TRADE_DURATION_MINUTES}-min timeout, max 7 concurrent trades")
     print("🔧 Initializing multi-pair trading bot...")
     
     # Create bot instance

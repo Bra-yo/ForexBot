@@ -13,7 +13,7 @@ import threading
 import queue
 import asyncio
 import logging
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable, Any, Tuple
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from .mt5_connector import MT5Connector

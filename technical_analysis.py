@@ -488,7 +488,7 @@ class TechnicalAnalysis:
             logger.error(f"Error analyzing signals: {e}")
             return {'signal': 'WAIT', 'strength': 0, 'reasons': ['Analysis error'], 'all_signals': []}
     
-    def analyze_higher_timeframe_trend(self, mt5_connector, symbol, current_timeframe='M15'):
+    def analyze_higher_timeframe_trend(self, mt5_connector, symbol, current_timeframe='M15', as_of=None):
         """
         Analyze trend on higher timeframe using proper EMA logic
         
@@ -496,6 +496,12 @@ class TechnicalAnalysis:
             mt5_connector: MT5 connector instance
             symbol (str): Currency pair symbol
             current_timeframe (str): Current timeframe for reference
+            as_of (datetime, optional): Treat this as "now" instead of the real
+                current time. Required for backtesting - without it, this
+                method would fetch TODAY's real H4 trend for every historical
+                decision being simulated (look-ahead bias), regardless of what
+                point in history the backtest is actually evaluating. Live
+                trading is unaffected: as_of=None still means "use real now".
             
         Returns:
             dict: {'trend': 'BULLISH'/'BEARISH'/'SIDEWAYS', 'strength': 0-100}
@@ -511,7 +517,7 @@ class TechnicalAnalysis:
             
             # Get higher timeframe data
             from datetime import datetime, timedelta
-            end_date = datetime.now()
+            end_date = as_of if as_of is not None else datetime.now()
             start_date = end_date - timedelta(days=htf_period * 2)
             
             htf_data = mt5_connector.get_historical_data(
@@ -864,7 +870,7 @@ class TechnicalAnalysis:
         
         return market_condition
 
-    def advanced_signal_analysis(self, mt5_connector, data, symbol, timeframe='H1'):
+    def advanced_signal_analysis(self, mt5_connector, data, symbol, timeframe='H1', as_of=None):
         """
         Comprehensive signal analysis with all professional factors
         
@@ -873,6 +879,8 @@ class TechnicalAnalysis:
             data (pd.DataFrame): Price data
             symbol (str): Currency pair symbol
             timeframe (str): Current timeframe
+            as_of (datetime, optional): Backtesting support - see
+                analyze_higher_timeframe_trend for why this matters.
             
         Returns:
             dict: Comprehensive signal analysis with all factors
@@ -911,7 +919,7 @@ class TechnicalAnalysis:
             analysis_result['factors']['basic_strength'] = basic_signal['strength']
             
             # 2. Higher Timeframe Trend Analysis
-            htf_trend = self.analyze_higher_timeframe_trend(mt5_connector, symbol, timeframe)
+            htf_trend = self.analyze_higher_timeframe_trend(mt5_connector, symbol, timeframe, as_of=as_of)
             analysis_result['htf_trend'] = htf_trend['trend']
             analysis_result['factors']['htf_trend'] = htf_trend['trend']
             analysis_result['factors']['htf_strength'] = htf_trend['strength']

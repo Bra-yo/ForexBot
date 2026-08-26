@@ -32,7 +32,20 @@ class VPSWatchdog:
         logger.info(f"Check interval: {self.check_interval}s")
     
     def check_mt5_connection(self) -> bool:
-        """Check if MT5 is properly connected"""
+        """Check if MT5 is properly connected.
+        
+        IMPORTANT: this must NOT call mt5.shutdown(). MetaTrader5's Python
+        API uses one shared, process-wide connection - it is not a fresh
+        connection per call. This function runs inside the live trading
+        process (via watchdog_check(), called from execute_live_trade()),
+        sharing that connection with every other part of the bot. The
+        previous version called mt5.shutdown() even on its SUCCESS path,
+        which tore down the only MT5 connection the whole bot depends on
+        the very first time a real trade signal triggered this check -
+        after which every subsequent get_historical_data() call returned
+        empty (0 candles) for the rest of the run, since nothing else ever
+        called mt5.initialize() again.
+        """
         try:
             # Test MT5 connection
             if not mt5.initialize():
@@ -43,17 +56,14 @@ class VPSWatchdog:
             account_info = mt5.account_info()
             if not account_info:
                 logger.error("Cannot get account info")
-                mt5.shutdown()
                 return False
             
             # Test terminal info
             terminal_info = mt5.terminal_info()
             if not terminal_info:
                 logger.error("Cannot get terminal info")
-                mt5.shutdown()
                 return False
             
-            mt5.shutdown()
             return True
             
         except Exception as e:

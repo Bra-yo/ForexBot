@@ -31,9 +31,17 @@ class TelegramNotifier:
         self.cooldown_minutes = 10  # 10 minutes cooldown between same setup alerts
         self.last_execution_time = {}
         
-        # Validate setup
-        if not self.bot_token or not self.chat_id:
-            logger.warning("Telegram credentials not provided. Notifications disabled.")
+        # Validate setup. Also catches the .env.example placeholder values
+        # ("your_telegram_bot_token" / "your_chat_id") - those are non-empty
+        # strings, so the old check (missing/empty only) let them through,
+        # meaning every single message attempt hit Telegram's real API and
+        # failed with a 404, logged as an error every cycle.
+        placeholder_values = {'your_telegram_bot_token', 'your_chat_id', ''}
+        if not self.bot_token or not self.chat_id or \
+           self.bot_token in placeholder_values or self.chat_id in placeholder_values:
+            logger.warning("Telegram credentials missing or still set to the .env.example "
+                            "placeholder values. Notifications disabled - set real "
+                            "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID in .env to enable them.")
             self.enabled = False
         else:
             self.enabled = True

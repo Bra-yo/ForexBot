@@ -7,6 +7,8 @@ LEVEL 10.1: ELITE TRADING SYSTEM
 import logging
 import time
 import json
+import sys
+import psutil
 from datetime import datetime
 # Restored: this file is run on Windows with a live MT5 terminal (see
 # LOCAL_START_GUIDE.md). Several methods below (get_atr, and risk_manager's
@@ -222,7 +224,15 @@ class LiveTradingExecutor:
         self._max_spread_pips = 8.0      # Increased from 5.0 to 8.0 pips for more entries
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
-        self._max_trades_per_pair = 1  # Hard cap: 1 trade per pair at a time
+        self._max_trades_per_pair = 7  # One slot per timeframe (M1/M5/M15/M30/H1/H4/D1).
+        # Was hard-capped at 1, which silently defeated any attempt at
+        # treating timeframes as independent opportunities - only the very
+        # first qualifying signal in a cycle could ever actually open,
+        # regardless of what run_analysis_cycle() did. Then raised to 3 when
+        # only M15/M30/H1 were active. This is a genuine increase in
+        # concurrent Gold exposure (up to 7x) - each position still carries
+        # its own stop_loss independently, but total risk-at-once is now
+        # meaningfully higher than the original single-position design.
         
         # 🔥 CRITICAL FIX #5: LOSS PROTECTION
         self._consecutive_losses = {}  # Track consecutive losses per symbol
@@ -308,8 +318,28 @@ class LiveTradingExecutor:
             self.telegram.send_message(message)
         
     def _check_lock_file(self):
-        """PART 9: Check if lock file exists"""
-        return os.path.exists(self._lock_file)
+        """PART 9: Check if lock file exists AND belongs to a still-running
+        process. A lock file left behind by a crashed/killed previous run
+        (which never reached _remove_lock_file) used to permanently block
+        every future run with a false "already running" error."""
+        if not os.path.exists(self._lock_file):
+            return False
+        try:
+            with open(self._lock_file, 'r') as f:
+                old_pid = int(f.read().strip())
+            if psutil.pid_exists(old_pid):
+                return True  # genuinely still running
+            else:
+                logger.warning(f"Found stale lock file (PID {old_pid} not running) - removing it")
+                os.remove(self._lock_file)
+                return False
+        except (ValueError, OSError) as e:
+            logger.warning(f"Lock file unreadable/corrupt ({e}) - removing it")
+            try:
+                os.remove(self._lock_file)
+            except OSError:
+                pass
+            return False
         
     def _create_lock_file(self):
         """PART 9: Create lock file with current PID"""
@@ -975,8 +1005,12 @@ Bot: Nyx AI Level 6
         if self.command_handler:
             self.command_handler.handle_command(message_text, chat_id)
     
-    def monitor_positions(self):
-        """Monitor open positions with professional management"""
+    def stop(self):
+        """Stop the bot safely: set stop flags, notify via Telegram, clean
+        up the lock file. (Previously named monitor_positions() - despite
+        the name, it never monitored anything; it was the actual shutdown
+        logic, just never callable as .stop(), which is what every caller
+        - this class's own signal_handler included - actually calls.)"""
         self.running = False
         self.is_running = False
         logger.info("Bot stopping safely...")
@@ -1106,7 +1140,7 @@ Bot: Nyx AI Level 6
         except Exception as e:
             logger.error(f"Error activating trailing stop: {e}")
         
-    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="XAUUSD", market_data=None):
+    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="XAUUSD", market_data=None, skip_rr_recheck=False):
         """Execute live trade with all safety checks"""
         
         # 🔧 LEVEL 10.3: VPS WATCHDOG CHECK
@@ -1308,7 +1342,11 @@ Bot: Nyx AI Level 6
             # PART 7: TRADE QUALITY FILTER
             # 🔧 LEVEL 10.1: ELITE CONFIDENCE FILTER
             if confidence < (elite_config.MIN_CONFIDENCE * 100):  # Convert to percentage
-                logger.debug(f"🧠 ELITE: Trade blocked: Low confidence ({confidence:.1f}% < {elite_config.MIN_CONFIDENCE * 100}%)")
+                # Was logger.debug() - invisible at the INFO logging level
+                # this bot actually runs at, which is exactly why M15/H1
+                # signals kept "disappearing" between "Passed all checks"
+                # and the final False with zero explanation in between.
+                logger.info(f"🧠 ELITE: Trade blocked: Low confidence ({confidence:.1f}% < {elite_config.MIN_CONFIDENCE * 100}%)")
                 return False
                 
             # 🔥 LEVEL 10.2: DYNAMIC R/R REQUIREMENTS
@@ -1325,8 +1363,21 @@ Bot: Nyx AI Level 6
                 if rr_ratio < min_rr:
                     logger.warning(f"🧠 ELITE: Trade blocked: R/R too low ({rr_ratio:.2f} < {min_rr}) | Score: {trade_score:.2f}")
                     return False
+            elif skip_rr_recheck:
+                # SL/TP already came pre-validated from advanced_signal_analysis(),
+                # which confirms R:R >= 2.0 internally at signal-generation time
+                # (structure_tp is literally built as entry_at_signal_time + 2*risk).
+                # Re-deriving R:R here against a freshly-fetched LIVE entry_price
+                # compares a moving price against those same FIXED SL/TP levels -
+                # as price drifts toward the fixed TP between signal and execution,
+                # the "reward" leg shrinks toward zero even though the setup was
+                # genuinely valid. Confirmed directly in logs: M5 reward shrinking
+                # $22->$12->$5->$4 across consecutive cycles as price approached
+                # the same fixed TP - this was silently killing every fast-timeframe
+                # trade despite the signal already being sound.
+                logger.info(f"✅ R/R already validated at signal generation - skipping stale-price re-check")
             else:
-                # Fallback R/R check for non-ATR trades
+                # Fallback R/R check for trades without pre-validated levels
                 if stop_loss and take_profit and entry_price:
                     risk = abs(entry_price - stop_loss)
                     reward = abs(take_profit - entry_price)
