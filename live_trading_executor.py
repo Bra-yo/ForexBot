@@ -221,7 +221,16 @@ class LiveTradingExecutor:
         self._min_rr = 1.3              # lower slightly to allow more trades
         self._min_sl_pips = 20          # reduced from 40 → more trades allowed
         self._use_atr_stops = True      # Enable ATR-based dynamic stops
-        self._max_spread_pips = 8.0      # Increased from 5.0 to 8.0 pips for more entries
+        self._max_spread_pips = 100.0    # Recalibrated for Gold: this file's spread
+        # check divides the raw dollar spread by symbol_info['point'] (0.01 for
+        # XAUUSD), so "1 pip" here means $0.01 - NOT the forex convention this
+        # 8.0 value was clearly set for (comment said "Increased from 5.0 to 8.0
+        # pips", forex-era tuning language, never recalibrated for Gold's actual
+        # scale). A genuinely normal gold spread of $0.90 computes to "90.1 pips"
+        # by this formula and was being rejected by an 8.0 threshold meant for
+        # EUR/USD-tight spreads. 100 ($1.00) is a reasonable starting point for
+        # gold, not a back-tested optimum - watch real spread_pips values in your
+        # logs and tighten this once you know your broker's typical range.
         
         # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 7  # One slot per timeframe (M1/M5/M15/M30/H1/H4/D1).
