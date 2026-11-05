@@ -152,7 +152,7 @@ class TelegramNotifier:
         if new_state == old_state:
             return False
         
-        message = f"""📊 MARKET STATE CHANGE 📊
+        message = f""" MARKET STATE CHANGE
 
 <b>Pair:</b> {symbol}
 <b>Previous:</b> {old_state}
@@ -183,7 +183,7 @@ class TelegramNotifier:
         tp = trade_data.get('take_profit', 0)
         volume = trade_data.get('volume', 0)
         
-        message = f"""✅ TRADE EXECUTED ✅
+        message = f""" TRADE EXECUTED
 
 <b>Pair:</b> {symbol}
 <b>Signal:</b> {signal}
@@ -215,7 +215,7 @@ class TelegramNotifier:
         profit = trade_data.get('profit', 0)
         
         # Determine emoji based on profit
-        emoji = "💰" if profit > 0 else "📉"
+        emoji = "" if profit > 0 else ""
         
         message = f"""{emoji} TRADE CLOSED {emoji}
 
@@ -284,12 +284,12 @@ class TelegramNotifier:
         reasons = signal_data.get('reasons', [])
         
         # Determine signal emoji
-        signal_emoji = "📈" if signal == "BUY" else "📉" if signal == "SELL" else "⏳"
+        signal_emoji = "" if signal == "BUY" else "" if signal == "SELL" else "⏳"
         
         # Format reasons
         reasons_text = "\n".join([f"• {reason}" for reason in reasons[:3]])  # Limit to top 3
         
-        message = f"""🚀 TRADE ALERT 🚀
+        message = f""" TRADE ALERT
 
 <b>Pair:</b> {symbol}
 <b>Signal:</b> {signal_emoji} {signal}
@@ -319,9 +319,9 @@ class TelegramNotifier:
         if not self.enabled:
             return False
         
-        message = f"""🤖 BOT TEST 🤖
+        message = f""" BOT TEST
 
-<b>Status:</b> ✅ Online
+<b>Status:</b> Online
 <b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 <i>BrayoForexBot is ready to send alerts</i>"""

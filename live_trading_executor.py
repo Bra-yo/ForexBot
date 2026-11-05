@@ -4,6 +4,7 @@ Professional-grade execution with advanced position management
 LEVEL 10.1: ELITE TRADING SYSTEM
 """
 
+import os
 import logging
 import time
 import json
@@ -18,6 +19,7 @@ from datetime import datetime
 # open. Trade execution itself still goes through the JSON signal bridge
 # below; this import only restores the market-data/risk-check helpers.
 import MetaTrader5 as mt5
+from confidence_config import MIN_CONFIDENCE_PCT
 from signal_bridge import signal_bridge, send_signal, get_signal_status
 from signal_quality_engine import SignalQualityEngine
 from adaptive_threshold_engine import AdaptiveThresholdEngine
@@ -47,45 +49,31 @@ class EliteTradingConfig:
     """LEVEL 10.1: Elite trading configuration"""
     
     def __init__(self):
-        # Adaptive trade limits based on market conditions
-        self.MAX_TRADES_TRENDING = 20
-        self.MAX_TRADES_NORMAL = 10
-        self.MAX_TRADES_PER_DAY = 15  # Hard daily limit
-        
-        # Increased confidence threshold
-        self.MIN_CONFIDENCE = 0.65  # 65% minimum
+        # Removed MAX_TRADES_TRENDING/MAX_TRADES_NORMAL/MAX_TRADES_PER_DAY/
+        # trades_today/last_trade_date/get_max_trades()/check_daily_limit()/
+        # increment_trades() - confirmed dead: check_daily_limit() (the only
+        # method that could have actually gated a trade on this limit) was
+        # never called anywhere. increment_trades() incremented a counter
+        # nothing ever read for a decision. EliteTradeOverride (daily_limit=20,
+        # self.elite_override below) is the one daily-limit system that's
+        # actually wired in as a real gate via can_execute_trade() - keeping
+        # that as the single source of truth instead of two limits that could
+        # silently disagree.
+
+        # Confidence threshold - lowered again, 0.65 -> 0.60 -> now 0.50.
+        # This isn't just "loosen it further" - it's fixing a real
+        # inconsistency the live logs caught directly: run_analysis_cycle()
+        # in multi_pair_live_bot_clean.py already requires confidence > 50
+        # just to attempt a trade at all. With this at 0.60, a signal could
+        # clear that first gate (e.g. land at 50.1%), pass session/drawdown/
+        # trend-alignment checks, get a strong trade_score (0.88 observed),
+        # get adaptively approved - and still die at this second, stricter,
+        # never-reconciled gate. Aligning both to the same 50% bar removes
+        # that contradiction rather than just lowering the bar further.
+        self.MIN_CONFIDENCE = MIN_CONFIDENCE_PCT / 100.0  # shared single threshold
         
         # Increased R/R requirement
         self.MIN_RR_RATIO = 2.0  # Minimum 2:1
-        
-        # Minimum trend strength
-        self.MIN_TREND_STRENGTH = 0.6  # 60% minimum trend strength
-        
-        # Trade tracking
-        self.trades_today = 0
-        self.last_trade_date = datetime.now().date()
-        
-    def get_max_trades(self, market_condition="NORMAL"):
-        """Get adaptive max trades based on market condition"""
-        if market_condition.upper() == "TRENDING":
-            return self.MAX_TRADES_TRENDING
-        else:
-            return self.MAX_TRADES_NORMAL
-            
-    def check_daily_limit(self):
-        """Check if daily trade limit reached"""
-        today = datetime.now().date()
-        
-        # Reset counter if new day
-        if today != self.last_trade_date:
-            self.trades_today = 0
-            self.last_trade_date = today
-            
-        return self.trades_today >= self.MAX_TRADES_PER_DAY
-        
-    def increment_trades(self):
-        """Increment daily trade counter"""
-        self.trades_today += 1
 
 # Global elite config
 elite_config = EliteTradingConfig()
@@ -150,6 +138,11 @@ def close_mt5_trade(position):
 
 logger = logging.getLogger(__name__)
 
+# Candle length per timeframe, used so each timeframe waits for ITS OWN next candle.
+TIMEFRAME_SECONDS = {'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800,
+                     'H1': 3600, 'H4': 14400, 'D1': 86400}
+
+
 class LiveTradingExecutor:
     """Professional live trading execution with advanced management"""
     
@@ -158,26 +151,26 @@ class LiveTradingExecutor:
         self.is_running = False
         self.running = True  # NEW: Global running flag
         
-        # 🔧 LEVEL 10.2: INITIALIZE SIGNAL QUALITY ENGINE
+        # LEVEL 10.2: INITIALIZE SIGNAL QUALITY ENGINE
         self.signal_engine = SignalQualityEngine()
         
-        # 🔧 LEVEL 10.2: INITIALIZE ADAPTIVE THRESHOLD ENGINE
-        self.adaptive_threshold = AdaptiveThresholdEngine()  # 🧠 INTELLIGENCE SYSTEM
+        # LEVEL 10.2: INITIALIZE ADAPTIVE THRESHOLD ENGINE
+        self.adaptive_threshold = AdaptiveThresholdEngine() # INTELLIGENCE SYSTEM
         
-        # 🔧 LEVEL 10.3: INITIALIZE ADVANCED SYSTEMS
-        self.learning_system = AdvancedLearningSystem()  # 🧠 ADVANCED LEARNING
+        # LEVEL 10.3: INITIALIZE ADVANCED SYSTEMS
+        self.learning_system = AdvancedLearningSystem() # ADVANCED LEARNING
         self.confidence_system = AdaptiveConfidenceSystem(
-            base_threshold=75.0, 
-            learning_system=self.adaptive_threshold
-        )  # 🎯 ADAPTIVE CONFIDENCE
-        self.elite_override = EliteTradeOverride(daily_limit=20)  # 🔥 ELITE TRADE OVERRIDE
-        self.vps_watchdog = VPSWatchdog(telegram_assistant=self.telegram)  # 🛡️ VPS WATCHDOG
-        self.telegram_alerts = AdvancedTelegramAlerts(telegram_assistant=self.telegram)  # 📢 ADVANCED ALERTS
+            base_threshold=MIN_CONFIDENCE_PCT, 
+            learning_system=self.learning_system
+        ) # ADAPTIVE CONFIDENCE
+        self.elite_override = EliteTradeOverride(daily_limit=20) # ELITE TRADE OVERRIDE
+        self.vps_watchdog = VPSWatchdog(telegram_assistant=self.telegram) # VPS WATCHDOG
+        self.telegram_alerts = AdvancedTelegramAlerts(telegram_assistant=self.telegram) # ADVANCED ALERTS
         
-        # 🔧 LEVEL 10.2: INITIALIZE RISK MANAGER
+        # LEVEL 10.2: INITIALIZE RISK MANAGER
         self.risk_manager = RiskManager()  # CRITICAL FIX: Missing risk_manager
         
-        # 🔧 LEVEL 10.2: INITIALIZE ADAPTIVE COMPONENTS
+        # LEVEL 10.2: INITIALIZE ADAPTIVE COMPONENTS
         self.adaptive_sizer = AdaptiveLotSizer()  # CRITICAL FIX: Missing adaptive_sizer
         self.profit_manager = ProfitTargetManager()  # CRITICAL FIX: Missing profit_manager
         self.profit_targets = ProfitTargetManager()  # CRITICAL FIX: Missing profit_targets (alias)
@@ -191,7 +184,7 @@ class LiveTradingExecutor:
         self._lock_file = "nyx.lock"
         if self._check_lock_file():
             logger.error("Nyx AI is already running! Only one instance allowed.")
-            print("❌ ERROR: Nyx AI is already running!")
+            print(" ERROR: Nyx AI is already running!")
             print("   Please stop the existing instance first.")
             sys.exit(1)
         self._create_lock_file()
@@ -206,20 +199,20 @@ class LiveTradingExecutor:
         self._last_telegram_trade = {}  # LEVEL 5: Track last Telegram per symbol
         self._trade_memory = {}  # LEVEL 5: Track last trade (symbol: {signal, time})
         
-        # 🔥 CRITICAL FIX #1: ONE DIRECTION PER PAIR
+        # CRITICAL FIX #1: ONE DIRECTION PER PAIR
         self._last_trade_direction = {}  # Track last trade direction per symbol
         self._direction_lock_time = {}   # Track when direction lock was set
         
-        # 🔥 CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
+        # CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
         self._cycle_count = {}  # Track cycles per symbol
         self._last_candle_time = {}  # Track last candle time per symbol
         self._required_cycles_wait = 3  # Wait 3 cycles between trades
         
-        # 🔥 LEVEL 8: SMART RISK ENGINE SETTINGS
+        # LEVEL 8: SMART RISK ENGINE SETTINGS
         self._atr_multiplier_sl = 1.5
-        self._atr_multiplier_tp = 2.5   # gives ~1:1.6–1:2 R/R
+        self._atr_multiplier_tp = 2.5   # gives ~1:1.6-1:2 R/R
         self._min_rr = 1.3              # lower slightly to allow more trades
-        self._min_sl_pips = 20          # reduced from 40 → more trades allowed
+        self._min_sl_pips = 20 # reduced from 40 more trades allowed
         self._use_atr_stops = True      # Enable ATR-based dynamic stops
         self._max_spread_pips = 100.0    # Recalibrated for Gold: this file's spread
         # check divides the raw dollar spread by symbol_info['point'] (0.01 for
@@ -232,7 +225,7 @@ class LiveTradingExecutor:
         # gold, not a back-tested optimum - watch real spread_pips values in your
         # logs and tighten this once you know your broker's typical range.
         
-        # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
+        # CRITICAL FIX #4: TRADE LIMIT PER PAIR
         self._max_trades_per_pair = 7  # One slot per timeframe (M1/M5/M15/M30/H1/H4/D1).
         # Was hard-capped at 1, which silently defeated any attempt at
         # treating timeframes as independent opportunities - only the very
@@ -243,7 +236,7 @@ class LiveTradingExecutor:
         # its own stop_loss independently, but total risk-at-once is now
         # meaningfully higher than the original single-position design.
         
-        # 🔥 CRITICAL FIX #5: LOSS PROTECTION
+        # CRITICAL FIX #5: LOSS PROTECTION
         self._consecutive_losses = {}  # Track consecutive losses per symbol
         self._loss_cooldown_time = {}  # Track when loss cooldown started
         self._loss_cooldown_duration = 1800  # 30 minutes in seconds
@@ -269,7 +262,7 @@ class LiveTradingExecutor:
         
         # LEVEL 7: TRADE SCORING SYSTEM
         self._trade_scores = {}  # Track scores per symbol
-        # 🔥 REMOVED OLD THRESHOLD: Now handled by adaptive system
+        # REMOVED OLD THRESHOLD: Now handled by adaptive system
         
         # LEVEL 7: PERFORMANCE MEMORY
         self._performance_memory = {}  # Track wins/losses per symbol
@@ -372,21 +365,21 @@ class LiveTradingExecutor:
         try:
             # LEVEL 6: Enhanced MT5 connection debug
             if not mt5.initialize():
-                print("❌ MT5 not initialized!")
+                print(" MT5 not initialized!")
                 logger.error("MT5 not initialized!")
                 return
             
             account = mt5.account_info()
             if account is None:
-                print("❌ No MT5 account connected!")
+                print(" No MT5 account connected!")
                 logger.error("No MT5 account connected!")
                 return
             
             # LEVEL 6: Enhanced logging
-            print(f"✅ Connected to account: {account.login}")
-            print(f"💰 Balance: ${account.balance:,.2f}")
-            print(f"💎 Equity: ${account.equity:,.2f}")
-            print(f"🌐 Server: {account.server}")
+            print(f" Connected to account: {account.login}")
+            print(f" Balance: ${account.balance:,.2f}")
+            print(f" Equity: ${account.equity:,.2f}")
+            print(f" Server: {account.server}")
             
             logger.info(f"Connected to account: {account.login}")
             logger.info(f"Starting Balance: ${account.balance:,.2f}")
@@ -399,7 +392,7 @@ class LiveTradingExecutor:
             
         except Exception as e:
             logger.error(f"Failed to initialize profit tracking: {e}")
-            print(f"❌ Error initializing profit tracking: {e}")
+            print(f" Error initializing profit tracking: {e}")
     
     def _check_drawdown_protection(self):
         """LEVEL 6: Check if daily loss exceeds 5% limit"""
@@ -416,11 +409,11 @@ class LiveTradingExecutor:
             daily_loss_percent = daily_loss / self._starting_balance
             
             if daily_loss_percent >= self._daily_loss_limit and not self._trading_stopped_for_drawdown:
-                logger.error(f"🚨 Daily drawdown limit reached: {daily_loss_percent:.1%}")
-                print(f"🚨 DAILY DRAWDOWN LIMIT REACHED: {daily_loss_percent:.1%}")
+                logger.error(f" Daily drawdown limit reached: {daily_loss_percent:.1%}")
+                print(f" DAILY DRAWDOWN LIMIT REACHED: {daily_loss_percent:.1%}")
                 
                 if self.telegram:
-                    alert_message = f"""🚨 DAILY DRAWDOWN LIMIT REACHED
+                    alert_message = f""" DAILY DRAWDOWN LIMIT REACHED
 
 Starting Balance: ${self._starting_balance:,.2f}
 Current Balance: ${current_balance:,.2f}
@@ -451,11 +444,11 @@ Bot: Nyx AI Level 6
             equity_ratio = equity / balance
             
             if equity_ratio < self._equity_protection_limit:
-                logger.error(f"💀 Equity protection triggered: {equity_ratio:.1%}")
-                print(f"💀 EQUITY PROTECTION TRIGGERED: {equity_ratio:.1%}")
+                logger.error(f" Equity protection triggered: {equity_ratio:.1%}")
+                print(f" EQUITY PROTECTION TRIGGERED: {equity_ratio:.1%}")
                 
                 if self.telegram:
-                    alert_message = f"""💀 EQUITY PROTECTION TRIGGERED
+                    alert_message = f""" EQUITY PROTECTION TRIGGERED
 
 Balance: ${balance:,.2f}
 Equity: ${equity:,.2f}
@@ -479,70 +472,100 @@ Bot: Nyx AI Level 6
     def _check_trading_session(self):
         """LEVEL 6: Check if current time is within allowed trading sessions"""
         current_hour = datetime.now().hour
-        logger.info(f"🕐 Current hour: {current_hour} UTC")
+        logger.info(f" Current hour: {current_hour} UTC")
         
         # Check Asian session (00:00-07:00 UTC)
         if self._asian_session_start <= current_hour < self._asian_session_end:
-            logger.info(f"✅ Asian Session active ({self._asian_session_start}:00-{self._asian_session_end}:00 UTC)")
+            logger.info(f" Asian Session active ({self._asian_session_start}:00-{self._asian_session_end}:00 UTC)")
             return True, "Asian Session"
             
         # Check London session (08:00-17:00 UTC)
         if self._london_session_start <= current_hour < self._london_session_end:
-            logger.info(f"✅ London Session active ({self._london_session_start}:00-{self._london_session_end}:00 UTC)")
+            logger.info(f" London Session active ({self._london_session_start}:00-{self._london_session_end}:00 UTC)")
             return True, "London Session"
             
         # Check New York session (13:00-22:00 UTC)
         if self._ny_session_start <= current_hour < self._ny_session_end:
-            logger.info(f"✅ New York Session active ({self._ny_session_start}:00-{self._ny_session_end}:00 UTC)")
+            logger.info(f" New York Session active ({self._ny_session_start}:00-{self._ny_session_end}:00 UTC)")
             return True, "New York Session"
             
         # Outside trading sessions
-        logger.warning(f"❌ Outside trading session (Hour: {current_hour} UTC)")
+        logger.warning(f" Outside trading session (Hour: {current_hour} UTC)")
         logger.warning(f"   Asian: {self._asian_session_start}:00-{self._asian_session_end}:00 UTC")
         logger.warning(f"   London: {self._london_session_start}:00-{self._london_session_end}:00 UTC")
         logger.warning(f"   New York: {self._ny_session_start}:00-{self._ny_session_end}:00 UTC")
         return False, f"Outside trading session (Hour: {current_hour} UTC)"
     
-    # 🔥 CRITICAL FIX #1: ONE DIRECTION PER PAIR
+    # CRITICAL FIX #1: ONE DIRECTION PER PAIR
     def _check_trade_direction_consistency(self, symbol, signal):
-        """Check if signal is consistent with last trade direction"""
-        if symbol not in self._last_trade_direction:
-            # First trade for this symbol - allow any direction
-            return True, "First trade - direction set"
-        
-        last_direction = self._last_trade_direction[symbol]
-        
-        if last_direction != signal:
-            return False, f"Direction mismatch: last was {last_direction}, current is {signal}"
-        
+        """Block a trade only if it would be OPPOSITE to a position the bot still has open.
+
+        The old version remembered the first trade's direction for the whole life
+        of the process and never cleared it, so after one SELL every BUY was
+        blocked until a restart. Now the lock lasts only while a position in the
+        other direction is actually open (no hedged long+short on gold).
+        """
+        try:
+            positions = mt5.positions_get(symbol=symbol)
+        except Exception:
+            positions = None
+        ours = [p for p in (positions or []) if getattr(p, 'magic', 123456) == 123456]
+        if not ours:
+            return True, "No open position - direction free"
+        want = 0 if signal == "BUY" else 1   # MT5: 0 = buy, 1 = sell
+        for pos in ours:
+            if pos.type != want:
+                held = "BUY" if pos.type == 0 else "SELL"
+                return False, f"Direction mismatch: an open {held} position exists, signal is {signal}"
         return True, f"Direction consistent: {signal}"
-    
-    # 🔥 CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
-    def _check_strong_cooldown(self, symbol):
-        """Check if enough cycles or new candle has passed"""
+
+    def _check_timeframe_slot(self, symbol, timeframe):
+        """Allow up to NYX_MAX_PER_TIMEFRAME open positions per timeframe (default 3),
+        counted by the order comment tag 'NYX <timeframe>'."""
+        try:
+            max_slots = int(os.environ.get("NYX_MAX_PER_TIMEFRAME", "3"))
+        except ValueError:
+            max_slots = 3
+        max_slots = max(1, max_slots)
+        try:
+            positions = mt5.positions_get(symbol=symbol)
+        except Exception:
+            positions = None
+        tag = f"NYX {str(timeframe).upper()}"
+        open_count = sum(1 for pos in (positions or []) if getattr(pos, 'comment', '') == tag)
+        if open_count >= max_slots:
+            return False, f"{timeframe} slots full: {open_count}/{max_slots} positions open"
+        return True, f"{timeframe} slots free: {open_count}/{max_slots} open"
+
+    # CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
+    def _check_strong_cooldown(self, symbol, timeframe="M15"):
+        """Check if enough cycles or a new candle of THIS timeframe has passed"""
         current_time = time.time()
-        
+        tf = str(timeframe).upper()
+        key = f"{symbol}|{tf}"
+
         # Check cycle cooldown
-        if symbol in self._cycle_count:
-            cycles_since_last_trade = current_time - self._cycle_count[symbol]
+        if key in self._cycle_count:
+            cycles_since_last_trade = current_time - self._cycle_count[key]
             required_wait = self._required_cycles_wait * 60  # 3 cycles = 3 minutes
-            
+
             if cycles_since_last_trade < required_wait:
                 remaining = required_wait - cycles_since_last_trade
                 return False, f"Cycle cooldown: {remaining/60:.1f} cycles remaining"
-        
-        # Check new candle cooldown (M15 = 15 minutes)
-        if symbol in self._last_candle_time:
-            time_since_candle = current_time - self._last_candle_time[symbol]
-            if time_since_candle < 900:  # 15 minutes for M15
-                remaining = 900 - time_since_candle
-                return False, f"Waiting for new candle: {remaining/60:.1f} minutes"
-        
+
+        # One trade per candle of this timeframe (M5 = 5 min, M15 = 15 min)
+        candle_seconds = TIMEFRAME_SECONDS.get(tf, 900)
+        if key in self._last_candle_time:
+            time_since_candle = current_time - self._last_candle_time[key]
+            if time_since_candle < candle_seconds:
+                remaining = candle_seconds - time_since_candle
+                return False, f"Waiting for new {tf} candle: {remaining/60:.1f} minutes"
+
         return True, "Cooldown passed"
-    
-    # 🔥 CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
-    def _check_minimum_profit_distance(self, symbol, entry_price, stop_loss, take_profit):
-        # 🔥 PRO LEVEL: ATR-ADAPTIVE DISTANCE CHECK
+
+    # CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
+    def _check_minimum_profit_distance(self, symbol, entry_price, stop_loss, take_profit, timeframe="M5"):
+        # PRO LEVEL: ATR-ADAPTIVE DISTANCE CHECK
         """Check if TP/SL distances are appropriate - adapts to ATR or uses fallback"""
         try:
             symbol_info = mt5.symbol_info(symbol)
@@ -553,7 +576,10 @@ Bot: Nyx AI Level 6
             
             # Try ATR-based validation first
             if self._use_atr_stops:
-                atr_value = self.get_atr(symbol, mt5.TIMEFRAME_M15, 14)
+                # ATR must come from the SAME timeframe the signal/SL were built on.
+                # It was M15, so M5 stop distances were judged against ~2x too much volatility
+                # and every trade died here with 'SL too tight'.
+                atr_value = self.get_atr(symbol, str(timeframe).upper(), 14)
                 if atr_value and atr_value > 0:
                     # Convert to scalar if needed
                     if hasattr(atr_value, '__len__') and len(atr_value) > 0:
@@ -562,8 +588,8 @@ Bot: Nyx AI Level 6
                         atr_value = atr_value.item()
                     
                     # ATR-based validation (more flexible)
-                    min_sl_atr = atr_value * 1.0  # Minimum SL = 1x ATR
-                    min_tp_atr = atr_value * 2.0  # Minimum TP = 2x ATR
+                    min_sl_atr = atr_value * 0.5  # Minimum SL = 0.5x M5 ATR
+                    min_tp_atr = atr_value * 1.0  # Minimum TP = 1x M5 ATR
                     
                     if stop_loss and entry_price:
                         sl_distance = abs(entry_price - stop_loss)
@@ -579,11 +605,11 @@ Bot: Nyx AI Level 6
                         if tp_pips < min_tp_atr / point:
                             return False, f"TP too tight for volatility: {tp_pips:.1f} < {min_tp_atr/point:.1f} ATR-based pips"
                     
-                    logger.info(f"✅ ATR-based distance validation passed for {symbol}")
+                    logger.info(f" ATR-based distance validation passed for {symbol}")
                     return True, f"ATR-based distances satisfied (SL: {sl_pips:.1f}, TP: {tp_pips:.1f} pips)"
             
             # Fallback to fixed pip validation (if ATR fails)
-            logger.warning(f"⚠️ Using fallback distance validation for {symbol}")
+            logger.warning(f" Using fallback distance validation for {symbol}")
             
             # Calculate distances in pips
             if stop_loss and entry_price:
@@ -609,7 +635,7 @@ Bot: Nyx AI Level 6
             logger.error(f"Error checking minimum profit distance: {e}")
             return False, f"Error: {e}"
     
-    # 🔥 CRITICAL FIX #4: TRADE LIMIT PER PAIR
+    # CRITICAL FIX #4: TRADE LIMIT PER PAIR
     def _check_trade_limit_per_pair(self, symbol):
         """Check if max trades per pair limit is reached"""
         try:
@@ -620,7 +646,7 @@ Bot: Nyx AI Level 6
             current_trades = len(positions)
             
             if current_trades >= self._max_trades_per_pair:
-                return False, f"Max trades reached: {current_trades} ≥ {self._max_trades_per_pair}"
+                return False, f"Max trades reached: {current_trades} >= {self._max_trades_per_pair}"
             
             return True, f"Trade limit OK: {current_trades}/{self._max_trades_per_pair}"
             
@@ -628,7 +654,7 @@ Bot: Nyx AI Level 6
             logger.error(f"Error checking trade limit: {e}")
             return False, f"Error: {e}"
     
-    # 🔥 CRITICAL FIX #5: LOSS PROTECTION
+    # CRITICAL FIX #5: LOSS PROTECTION
     def _check_loss_protection(self, symbol):
         """Check if symbol is in loss cooldown after consecutive losses"""
         current_time = time.time()
@@ -648,23 +674,23 @@ Bot: Nyx AI Level 6
         
         return True, "Loss protection passed"
     
-    # 🔥 LEVEL 8: SMART RISK ENGINE
+    # LEVEL 8: SMART RISK ENGINE
     def calculate_smart_sl_tp(self, symbol, entry_price, direction, atr_value, point):
         """
         LEVEL 8: Smart SL/TP using ATR + safety rules
         """
         
-        # � LEVEL 10.2: IMPROVED SL/TP CALCULATION
-        # � Convert ATR to price movement with better R/R
+        # LEVEL 10.2: IMPROVED SL/TP CALCULATION
+        # Convert ATR to price movement with better R/R
         sl_distance = atr_value * self._atr_multiplier_sl
-        tp_distance = atr_value * 3.0  # 🔥 INCREASED from fixed 2.0 to 3.0 for better R/R
+        tp_distance = atr_value * 3.0 # INCREASED from fixed 2.0 to 3.0 for better R/R
         
-        # 🛡️ Ensure minimum SL (prevents SL too close issue)
+        # Ensure minimum SL (prevents SL too close issue)
         min_sl_price = self._min_sl_pips * point
         if sl_distance < min_sl_price:
             sl_distance = min_sl_price
         
-        # 📈 Direction handling
+        # Direction handling
         if direction == "BUY":
             sl = entry_price - sl_distance
             tp = entry_price + tp_distance
@@ -672,18 +698,18 @@ Bot: Nyx AI Level 6
             sl = entry_price + sl_distance
             tp = entry_price - tp_distance
         
-        # 📊 Calculate R/R
+        # Calculate R/R
         risk = abs(entry_price - sl)
         reward = abs(tp - entry_price)
         rr_ratio = reward / risk if risk > 0 else 0
         
-        logger.info(f"🔥 LEVEL 8 Smart SL/TP for {symbol}: SL={sl:.5f}, TP={tp:.5f}, R/R={rr_ratio:.2f}")
+        logger.info(f" LEVEL 8 Smart SL/TP for {symbol}: SL={sl:.5f}, TP={tp:.5f}, R/R={rr_ratio:.2f}")
         
         return sl, tp, rr_ratio
     
     def get_atr(self, symbol, timeframe, period=14):
         """
-        🔥 ATR FETCH - LEVEL 8 Smart Risk Engine
+         ATR FETCH - LEVEL 8 Smart Risk Engine
         """
         try:
             # Accept either an MT5 TIMEFRAME_* constant or a string like 'M15'
@@ -727,15 +753,16 @@ Bot: Nyx AI Level 6
         """Update the last trade direction for a symbol"""
         self._last_trade_direction[symbol] = signal
         self._direction_lock_time[symbol] = time.time()
-        logger.info(f"🔒 Direction locked for {symbol}: {signal}")
+        logger.info(f" Direction locked for {symbol}: {signal}")
     
-    def _update_cycle_count(self, symbol):
-        """Update cycle count for cooldown tracking"""
-        self._cycle_count[symbol] = time.time()
-        self._last_candle_time[symbol] = time.time()
-        logger.info(f"🔄 Cycle updated for {symbol}")
-    
-    def _update_loss_tracking(self, symbol, was_profitable):
+    def _update_cycle_count(self, symbol, timeframe="M15"):
+        """Update cycle count for cooldown tracking (per symbol and timeframe)"""
+        key = f"{symbol}|{str(timeframe).upper()}"
+        self._cycle_count[key] = time.time()
+        self._last_candle_time[key] = time.time()
+        logger.info(f" Cycle updated for {symbol} ({timeframe})")
+
+    def _update_loss_tracking(self, symbol, was_profitable, profit=None):
         """Update loss tracking and advanced learning system"""
         try:
             # Existing loss tracking logic
@@ -748,18 +775,25 @@ Bot: Nyx AI Level 6
                 self._consecutive_losses[symbol] += 1
             
             loss_count = self._consecutive_losses[symbol]
-            logger.warning(f"❌ Loss #{loss_count} for {symbol}")
+            logger.warning(f" Loss #{loss_count} for {symbol}")
             
             # Start cooldown after 2 consecutive losses
             if loss_count >= 2:
                 self._loss_cooldown_time[symbol] = time.time()
-                logger.warning(f"🚨 Loss cooldown activated for {symbol} (30 minutes)")
+                logger.warning(f" Loss cooldown activated for {symbol} (30 minutes)")
             
-            # 🔥 LEVEL 10.3: ADVANCED LEARNING SYSTEM
+            # LEVEL 10.3: ADVANCED LEARNING SYSTEM
             # Add trade result to learning system
-            # Note: We'll get the actual profit from position data
-            estimated_profit = 50.0 if was_profitable else -25.0  # Estimate for now
-            estimated_score = 0.65  # Will be calculated properly
+            # Real P&L from the closed position when the caller has it (MT5's
+            # position.profit) - was previously a flat guess (+50.0/-25.0)
+            # regardless of the real trade size, meaning a $500 win and a $5
+            # win were recorded identically. score/confidence below remain
+            # approximate: MT5 positions don't carry back the original
+            # signal's score/confidence, so tracking those accurately would
+            # need a ticket-keyed record from trade-open time - flagging this
+            # rather than silently leaving it looking fixed.
+            estimated_profit = profit if profit is not None else (50.0 if was_profitable else -25.0)
+            estimated_score = 0.65  # Still a placeholder - see note above
             
             self.learning_system.add_trade_result(
                 symbol, estimated_profit, estimated_score, 75.0  # Use confidence as proxy
@@ -772,12 +806,12 @@ Bot: Nyx AI Level 6
             logger.error(f"Error updating loss tracking: {e}")
     
     def get_adaptive_status(self):
-        """🧠 Get current adaptive threshold status"""
+        """ Get current adaptive threshold status"""
         try:
             summary = self.adaptive_threshold.get_performance_summary()
             
             status_msg = f"""
-🧠 ADAPTIVE THRESHOLD STATUS
+ ADAPTIVE THRESHOLD STATUS
    Total Trades: {summary['total_trades']}
    Recent Trades: {summary['recent_trades']}
    Win Rate: {summary['win_rate']:.2f}
@@ -801,7 +835,7 @@ Bot: Nyx AI Level 6
         """Reset daily adaptive metrics"""
         try:
             self.adaptive_threshold.reset_daily_metrics()
-            logger.info("📅 Daily adaptive metrics reset")
+            logger.info(" Daily adaptive metrics reset")
         except Exception as e:
             logger.error(f"Error resetting daily metrics: {e}")
     
@@ -857,12 +891,12 @@ Bot: Nyx AI Level 6
             current_time = time.time()
             
             # Log profit every cycle
-            logger.info(f"💰 Daily P&L: ${self._daily_profit:+.2f}")
-            logger.info(f"📊 Balance: ${current_balance:,.2f}")
+            logger.info(f" Daily P&L: ${self._daily_profit:+.2f}")
+            logger.info(f" Balance: ${current_balance:,.2f}")
             
             # Send Telegram update every 30 minutes
             if current_time - self._last_telegram_profit_time >= 1800:  # 30 minutes
-                profit_message = f"""📊 NYX AI PROFIT UPDATE
+                profit_message = f""" NYX AI PROFIT UPDATE
 
 Daily P&L: ${self._daily_profit:+.2f}
 Current Balance: ${current_balance:,.2f}
@@ -881,7 +915,7 @@ Bot: Nyx AI Level 6
     def _calculate_trade_score(self, symbol, confidence, market_data=None):
         """LEVEL 10.2: Calculate weighted trade score with REAL signal quality"""
         try:
-            # 🔧 LEVEL 10.2: USE REAL SIGNAL QUALITY ENGINE
+            # LEVEL 10.2: USE REAL SIGNAL QUALITY ENGINE
             if market_data:
                 # Extract real market data
                 ema_fast = market_data.get('ema_fast', 0)
@@ -902,7 +936,7 @@ Bot: Nyx AI Level 6
                 except:
                     score = 0.3
                 
-                # 🎯 DYNAMIC POSITION SIZING BASED ON PERFORMANCE
+                # DYNAMIC POSITION SIZING BASED ON PERFORMANCE
                 # Get performance summary for mode decision
                 performance_summary = self.adaptive_threshold.get_performance_summary()
                 current_mode = "Normal"  # Default mode
@@ -963,12 +997,12 @@ Bot: Nyx AI Level 6
             if self._winning_streak >= 3:
                 # Increase lot size for winning streak
                 self._current_lot_multiplier = min(self._current_lot_multiplier + 0.1, self._max_lot_multiplier)
-                logger.info(f"📈 Winning streak ({self._winning_streak}) - Increasing lot size to {self._current_lot_multiplier:.1f}x")
+                logger.info(f" Winning streak ({self._winning_streak}) - Increasing lot size to {self._current_lot_multiplier:.1f}x")
                 
             elif self._losing_streak >= 2:
                 # Reduce lot size for losing streak
                 self._current_lot_multiplier = max(self._current_lot_multiplier - 0.1, 0.5)
-                logger.info(f"📉 Losing streak ({self._losing_streak}) - Reducing lot size to {self._current_lot_multiplier:.1f}x")
+                logger.info(f" Losing streak ({self._losing_streak}) - Reducing lot size to {self._current_lot_multiplier:.1f}x")
                 
         except Exception as e:
             logger.error(f"Error adjusting lot size: {e}")
@@ -1024,7 +1058,7 @@ Bot: Nyx AI Level 6
         self.is_running = False
         logger.info("Bot stopping safely...")
         if self.telegram:
-            self.telegram.send_message("🛑 NYX AI Bot stopping safely...")
+            self.telegram.send_message(" NYX AI Bot stopping safely...")
         self._remove_lock_file()  # PART 9: Clean up lock file
             
     def signal_handler(self, signum, frame):
@@ -1038,7 +1072,7 @@ Bot: Nyx AI Level 6
         if os.path.exists("stop.txt"):
             logger.warning("Emergency stop file detected - stopping bot")
             if self.telegram:
-                self.telegram.send_message("🚨 EMERGENCY STOP ACTIVATED - Bot stopping")
+                self.telegram.send_message(" EMERGENCY STOP ACTIVATED - Bot stopping")
             os.remove("stop.txt")  # Clean up
             return True
         return False
@@ -1065,7 +1099,7 @@ Bot: Nyx AI Level 6
                 if current_sl == 0 or entry_price == 0:
                     continue
                     
-                # 🔧 LEVEL 10.1: ELITE TRAILING STOP LOGIC
+                # LEVEL 10.1: ELITE TRAILING STOP LOGIC
                 # Calculate initial risk
                 if position.type == 0:  # BUY
                     initial_risk = entry_price - current_sl
@@ -1079,16 +1113,16 @@ Bot: Nyx AI Level 6
                     
                 profit_ratio = current_risk / initial_risk
                 
-                # 🔥 LEVEL 10.1: MOVE TO BREAK EVEN WHEN PROFIT > RISK
+                # LEVEL 10.1: MOVE TO BREAK EVEN WHEN PROFIT > RISK
                 if profit_ratio >= 1.0 and ticket not in self._breakeven_moved:
                     self._move_to_breakeven(position, ticket)
                     self._breakeven_moved[ticket] = True
-                    logger.info(f"🧠 ELITE: Moved {position.symbol} #{ticket} to breakeven (profit: ${current_profit:.2f})")
+                    logger.info(f" ELITE: Moved {position.symbol} #{ticket} to breakeven (profit: ${current_profit:.2f})")
                     
-                # 🔥 LEVEL 10.1: ACTIVATE TRAILING STOP WHEN WINNING
+                # LEVEL 10.1: ACTIVATE TRAILING STOP WHEN WINNING
                 if profit_ratio >= 1.5:  # When profit is 1.5x risk
                     self._activate_trailing_stop(position, ticket)
-                    logger.info(f"🧠 ELITE: Trailing stop activated for {position.symbol} #{ticket} (profit: ${current_profit:.2f})")
+                    logger.info(f" ELITE: Trailing stop activated for {position.symbol} #{ticket} (profit: ${current_profit:.2f})")
                     
         except Exception as e:
             logger.error(f"Profit management error: {e}")
@@ -1149,16 +1183,16 @@ Bot: Nyx AI Level 6
         except Exception as e:
             logger.error(f"Error activating trailing stop: {e}")
         
-    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="XAUUSD", market_data=None, skip_rr_recheck=False):
+    def execute_live_trade(self, signal, confidence, entry_price, stop_loss, take_profit, lot_size, symbol="XAUUSD", market_data=None, skip_rr_recheck=False, timeframe="M15"):
         """Execute live trade with all safety checks"""
         
-        # 🔧 LEVEL 10.3: VPS WATCHDOG CHECK
+        # LEVEL 10.3: VPS WATCHDOG CHECK
         if not self.vps_watchdog.watchdog_check():
             logger.error("VPS Watchdog: MT5 connection issues detected")
             return False
         
         try:
-            logger.info(f"🚀 execute_live_trade called for {symbol} - {signal} @ {confidence:.1f}%")
+            logger.info(f" execute_live_trade called for {symbol} - {signal} @ {confidence:.1f}%")
             
             # LEVEL 6: Check trading session first
             session_allowed, session_reason = self._check_trading_session()
@@ -1166,7 +1200,7 @@ Bot: Nyx AI Level 6
                 logger.debug(f"Trade blocked: {session_reason}")
                 return False
         
-            logger.info(f"✅ Session check passed for {symbol}")
+            logger.info(f" Session check passed for {symbol}")
             
             # MARKET OPEN CHECK - Verify market is actually open (Signal Bridge compatible)
             symbol_info = get_symbol_info(symbol)
@@ -1174,7 +1208,16 @@ Bot: Nyx AI Level 6
                 logger.error(f"Symbol not available: {symbol}")
                 return False
             
-            if symbol_info.get('trade_mode', 0) != 1:  # 1 = SYMBOL_TRADE_MODE_FULL
+            if symbol_info.get('trade_mode', 0) != 4:  # 4 = SYMBOL_TRADE_MODE_FULL
+                # Was checking != 1, but 1 is actually SYMBOL_TRADE_MODE_LONGONLY
+                # in the real MT5 API (0=DISABLED, 1=LONGONLY, 2=SHORTONLY,
+                # 3=CLOSEONLY, 4=FULL). XAUUSD on a normal demo account
+                # reports trade_mode=4 (FULL) when genuinely tradeable, so this
+                # was rejecting every single live trade attempt regardless of
+                # real market state - confirmed directly in the logs: session
+                # checks passing, confidence clearing 50%+, and then "Market
+                # not open" firing every time anyway, all session, during
+                # actual London trading hours.
                 logger.error(f"Market not open for trading: {symbol}")
                 return False
             
@@ -1188,21 +1231,21 @@ Bot: Nyx AI Level 6
             
             # LEVEL 6: Check drawdown protection
             if self._check_drawdown_protection():
-                logger.info(f"❌ Drawdown protection triggered for {symbol}")
+                logger.info(f" Drawdown protection triggered for {symbol}")
                 return False  # Trading stopped due to drawdown
             
-            logger.info(f"✅ Drawdown check passed for {symbol}")
+            logger.info(f" Drawdown check passed for {symbol}")
             
             # LEVEL 6: Check equity protection
             if self._check_equity_protection():
-                logger.info(f"❌ Equity protection triggered for {symbol}")
+                logger.info(f" Equity protection triggered for {symbol}")
                 return False  # Bot stopped due to equity protection
             
-            logger.info(f"✅ Equity check passed for {symbol}")
+            logger.info(f" Equity check passed for {symbol}")
             
-            logger.info(f"✅ Passed Level 6 checks for {symbol}")
+            logger.info(f" Passed Level 6 checks for {symbol}")
             
-            # 🔧 LEVEL 10.3: ELITE TRADE OVERRIDE CHECK
+            # LEVEL 10.3: ELITE TRADE OVERRIDE CHECK
             # Check if we can use elite override for high-quality trades
             trend_aligned = True  # Will be determined later in trend check
             score = 0.60  # Default score, will be calculated properly later
@@ -1212,7 +1255,7 @@ Bot: Nyx AI Level 6
             )
             
             if not can_execute:
-                logger.warning(f"❌ Elite trade override blocked: {override_reason}")
+                logger.warning(f" Elite trade override blocked: {override_reason}")
                 return False
             
             if override_reason.startswith("Elite trade override"):
@@ -1221,15 +1264,15 @@ Bot: Nyx AI Level 6
                     'confidence': confidence,
                     'score': score
                 })
-                logger.warning(f"🔥 {override_reason}")
+                logger.warning(f" {override_reason}")
             
             # PART 1: VALIDATE TRADE DATA BEFORE FORMATTING
-            logger.info(f"🔍 Validating trade data for {symbol}...")
+            logger.info(f" Validating trade data for {symbol}...")
             if entry_price is None or lot_size is None:
-                logger.warning(f"❌ Invalid trade data - skipped (entry: {entry_price}, lot: {lot_size})")
+                logger.warning(f" Invalid trade data - skipped (entry: {entry_price}, lot: {lot_size})")
                 return False
             
-            logger.info(f"✅ Trade data validation passed for {symbol}")
+            logger.info(f" Trade data validation passed for {symbol}")
             
             # LEVEL 10.2: MARKET DATA FOR SIGNAL QUALITY
             # Prefer the REAL market_data computed by MultiPairLiveBot.get_signal()
@@ -1251,7 +1294,7 @@ Bot: Nyx AI Level 6
                     'atr': fallback_atr if fallback_atr else 0.0
                 }
             
-            # 🔥 LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND
+            # LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND
             ema_fast = market_data.get('ema_fast', 0)
             ema_slow = market_data.get('ema_slow', 0)
             
@@ -1262,33 +1305,33 @@ Bot: Nyx AI Level 6
                 )
                 
                 if not trend_aligned:
-                    logger.warning(f"❌ Trend alignment rejected: {trend_msg}")
+                    logger.warning(f" Trend alignment rejected: {trend_msg}")
                     return False
                 
-                logger.info(f"✅ Trend alignment: {trend_msg}")
+                logger.info(f" Trend alignment: {trend_msg}")
             else:
                 # No real MA data available - don't fabricate a fake trend
                 # verdict, just skip the gate and note it in the logs.
                 trend_aligned = True
-                logger.warning(f"⚠️ No real MA data for {symbol} - trend alignment check skipped")
+                logger.warning(f" No real MA data for {symbol} - trend alignment check skipped")
             
             # LEVEL 7: TRADE SCORING SYSTEM
-            logger.info(f"🎯 Calculating trade score for {symbol}...")
+            logger.info(f" Calculating trade score for {symbol}...")
             
             trade_score = self._calculate_trade_score(symbol, confidence, market_data)
-            logger.info(f"📊 Trade score for {symbol}: {trade_score:.3f}")
+            logger.info(f" Trade score for {symbol}: {trade_score:.3f}")
             
-            # 🧠 INTELLIGENT THRESHOLD DECISION
+            # INTELLIGENT THRESHOLD DECISION
             should_trade, decision_msg = self.adaptive_threshold.should_trade(trade_score)
-            logger.info(f"🧠 Adaptive Decision: {decision_msg}")
+            logger.info(f" Adaptive Decision: {decision_msg}")
 
             if not should_trade:
-                logger.warning(f"❌ Adaptive threshold rejected | Score={trade_score:.2f}")
-                # 📊 IMPROVED LOG: Clear rejection reason
+                logger.warning(f" Adaptive threshold rejected | Score={trade_score:.2f}")
+                # IMPROVED LOG: Clear rejection reason
                 logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | REJECTED ({decision_msg})")
-                return False  # 🔥 CRITICAL: Return False, preserve trade_score
+                return False # CRITICAL: Return False, preserve trade_score
             
-            # � IMPROVED LOG: Clear execution details (pending MT5 confirmation)
+            # IMPROVED LOG: Clear execution details (pending MT5 confirmation)
             logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | ATTEMPTING")
             logger.info(f"Passed all checks for {symbol} - Score: {trade_score:.3f}")
             
@@ -1296,7 +1339,7 @@ Bot: Nyx AI Level 6
             
             # Calculate SL/TP if not provided
             if stop_loss is None or take_profit is None:
-                # 🔧 FIX 4: SYMBOL INFO WITH RETRY (Signal Bridge compatible)
+                # FIX 4: SYMBOL INFO WITH RETRY (Signal Bridge compatible)
                 symbol_info = None
                 for attempt in range(3):  # Retry 3 times
                     symbol_info = get_symbol_info(symbol)
@@ -1314,18 +1357,18 @@ Bot: Nyx AI Level 6
                     return False
                 
                 point = symbol_info.get('point', 0.00001)
-                # 🔧 CRITICAL FIX: Use proper minimum stop based on symbol type
+                # CRITICAL FIX: Use proper minimum stop based on symbol type
                 if symbol.startswith(('JPY', 'XAU', 'XAG')):  # JPY pairs and metals
                     min_stop = 20 * point  # 20 pips for JPY (0.20)
                 else:
                     min_stop = 20 * point  # 20 pips for normal pairs (0.0020)
                 
-                # 🔥 LEVEL 8: SMART RISK ENGINE - REPLACE ALL SL/TP LOGIC
+                # LEVEL 8: SMART RISK ENGINE - REPLACE ALL SL/TP LOGIC
                 # Get ATR value using mock method for signal bridge
                 atr_value = self.get_atr(symbol, 'M15', 14)  # Use string timeframe instead of MT5 constant
                 
                 if atr_value is None:
-                    logger.warning(f"⚠️ ATR unavailable for {symbol} - using fallback")
+                    logger.warning(f" ATR unavailable for {symbol} - using fallback")
                     # Fallback to basic calculation
                     buffer = max(min_stop, 15 * point)
                     if signal == "BUY":
@@ -1339,7 +1382,7 @@ Bot: Nyx AI Level 6
                         if take_profit is None:
                             tp = entry_price - (buffer * 2.0)
                 else:
-                    # � LEVEL 8: SMART SL/TP CALCULATION
+                    # LEVEL 8: SMART SL/TP CALCULATION
                     sl, tp, rr_ratio = self.calculate_smart_sl_tp(
                         symbol, entry_price, signal, atr_value, point
                     )
@@ -1349,16 +1392,16 @@ Bot: Nyx AI Level 6
                 take_profit = tp if take_profit is None else take_profit
             
             # PART 7: TRADE QUALITY FILTER
-            # 🔧 LEVEL 10.1: ELITE CONFIDENCE FILTER
+            # LEVEL 10.1: ELITE CONFIDENCE FILTER
             if confidence < (elite_config.MIN_CONFIDENCE * 100):  # Convert to percentage
                 # Was logger.debug() - invisible at the INFO logging level
                 # this bot actually runs at, which is exactly why M15/H1
                 # signals kept "disappearing" between "Passed all checks"
                 # and the final False with zero explanation in between.
-                logger.info(f"🧠 ELITE: Trade blocked: Low confidence ({confidence:.1f}% < {elite_config.MIN_CONFIDENCE * 100}%)")
+                logger.info(f" ELITE: Trade blocked: Low confidence ({confidence:.1f}% < {elite_config.MIN_CONFIDENCE * 100}%)")
                 return False
                 
-            # 🔥 LEVEL 10.2: DYNAMIC R/R REQUIREMENTS
+            # LEVEL 10.2: DYNAMIC R/R REQUIREMENTS
             # Calculate dynamic minimum R/R based on signal strength
             if trade_score >= 0.70:
                 min_rr = 1.5  # Strong signals need less R/R
@@ -1367,10 +1410,10 @@ Bot: Nyx AI Level 6
             else:
                 min_rr = 2.0  # Weak signals need high R/R
             
-            # 🔥 LEVEL 10.1: Enhanced R/R filter with dynamic threshold
+            # LEVEL 10.1: Enhanced R/R filter with dynamic threshold
             if 'atr_value' in locals() and atr_value is not None:
                 if rr_ratio < min_rr:
-                    logger.warning(f"🧠 ELITE: Trade blocked: R/R too low ({rr_ratio:.2f} < {min_rr}) | Score: {trade_score:.2f}")
+                    logger.warning(f" ELITE: Trade blocked: R/R too low ({rr_ratio:.2f} < {min_rr}) | Score: {trade_score:.2f}")
                     return False
             elif skip_rr_recheck:
                 # SL/TP already came pre-validated from advanced_signal_analysis(),
@@ -1384,7 +1427,7 @@ Bot: Nyx AI Level 6
                 # $22->$12->$5->$4 across consecutive cycles as price approached
                 # the same fixed TP - this was silently killing every fast-timeframe
                 # trade despite the signal already being sound.
-                logger.info(f"✅ R/R already validated at signal generation - skipping stale-price re-check")
+                logger.info(f" R/R already validated at signal generation - skipping stale-price re-check")
             else:
                 # Fallback R/R check for trades without pre-validated levels
                 if stop_loss and take_profit and entry_price:
@@ -1396,10 +1439,10 @@ Bot: Nyx AI Level 6
                         return False
                         
                     rr_ratio = reward / risk
-                    logger.info(f"🔧 Fallback R/R ratio for {symbol}: {rr_ratio:.2f} (risk: {risk:.5f}, reward: {reward:.5f})")
+                    logger.info(f" Fallback R/R ratio for {symbol}: {rr_ratio:.2f} (risk: {risk:.5f}, reward: {reward:.5f})")
                     
                     if rr_ratio < elite_config.MIN_RR_RATIO:
-                        logger.info(f"🧠 ELITE: Trade blocked: Low R/R ratio ({rr_ratio:.2f} < {elite_config.MIN_RR_RATIO})")
+                        logger.info(f" ELITE: Trade blocked: Low R/R ratio ({rr_ratio:.2f} < {elite_config.MIN_RR_RATIO})")
                         return False
             
             # Check spread (Signal Bridge compatible)
@@ -1413,16 +1456,16 @@ Bot: Nyx AI Level 6
                 else:
                     spread_pips = spread_points * 10000  # Fallback for 5-digit brokers
 
-                logger.info(f"🔧 Spread check for {symbol}: {spread_pips:.1f} pips")
+                logger.info(f" Spread check for {symbol}: {spread_pips:.1f} pips")
                 
-                # 🔧 LEVEL 8: SMART SPREAD FILTER (INCREASED TO 5.0 PIPS)
+                # LEVEL 8: SMART SPREAD FILTER (INCREASED TO 5.0 PIPS)
                 if spread_pips > self._max_spread_pips:
                     logger.info(f"Trade blocked: High spread ({spread_pips:.1f} > {self._max_spread_pips:.1f} pips)")
                     return False
                 else:
-                    logger.info(f"✅ Spread check passed for {symbol}: {spread_pips:.1f} pips")
+                    logger.info(f" Spread check passed for {symbol}: {spread_pips:.1f} pips")
             else:
-                logger.warning(f"❌ No tick data for {symbol}")
+                logger.warning(f" No tick data for {symbol}")
                 return False
             
             # CRITICAL FIX 1: Add final None validation before logging
@@ -1430,32 +1473,36 @@ Bot: Nyx AI Level 6
                 logger.warning("Invalid trade data - skipped (None values detected)")
                 return False
             
-            logger.info(f"🔧 About to enter Level 5 execution engine for {symbol}...")
+            logger.info(f" About to enter Level 5 execution engine for {symbol}...")
             
             # LEVEL 5: SMART EXECUTION ENGINE
             # 1. Anti-spam protection
             current_time = time.time()
-            logger.info(f"🕐 Checking cooldown for {symbol}...")
-            if symbol in self._last_trade_time:
-                time_since_last = current_time - self._last_trade_time[symbol]
-                logger.info(f"⏰ Time since last trade for {symbol}: {time_since_last:.0f}s (cooldown: {self._trade_cooldown}s)")
+            # Cooldown, signal memory and candle-wait are tracked per symbol AND
+            # timeframe, so an M15 trade does not silence M5 (and vice versa).
+            timeframe = str(timeframe).upper()
+            tf_key = f"{symbol}|{timeframe}"
+            logger.info(f" Checking cooldown for {symbol} ({timeframe})...")
+            if tf_key in self._last_trade_time:
+                time_since_last = current_time - self._last_trade_time[tf_key]
+                logger.info(f"Time since last trade for {symbol}: {time_since_last:.0f}s (cooldown: {self._trade_cooldown}s)")
                 if time_since_last < self._trade_cooldown:
                     logger.info(f"Trade blocked: Cooldown active for {symbol} ({time_since_last:.0f}s < {self._trade_cooldown}s)")
                     return False
             else:
-                logger.info(f"✅ No previous trade for {symbol} - cooldown cleared")
+                logger.info(f" No previous trade for {symbol} - cooldown cleared")
             
             # LEVEL 5: 2. Trade Memory System - prevent same signal repeats
-            logger.info(f"🧠 Checking trade memory for {symbol}...")
-            if symbol in self._trade_memory:
-                last_signal, last_time = self._trade_memory[symbol]
+            logger.info(f" Checking trade memory for {symbol}...")
+            if tf_key in self._trade_memory:
+                last_signal, last_time = self._trade_memory[tf_key]
                 time_since_memory = current_time - last_time
-                logger.info(f"📝 Last signal for {symbol}: {last_signal} ({time_since_memory:.0f}s ago)")
+                logger.info(f" Last signal for {symbol}: {last_signal} ({time_since_memory:.0f}s ago)")
                 if last_signal == signal and time_since_memory < 600:  # 10 minutes
                     logger.info(f"Trade blocked: Same signal {signal} for {symbol} within 10 minutes ({time_since_memory:.0f}s < 600s)")
                     return False
             else:
-                logger.info(f"✅ No trade memory for {symbol} - memory cleared")
+                logger.info(f" No trade memory for {symbol} - memory cleared")
             
             # LEVEL 5: 3. Only trade HIGH QUALITY signals
             confidence_passed, confidence_reason = self.confidence_system.check_confidence(confidence)
@@ -1463,47 +1510,54 @@ Bot: Nyx AI Level 6
                 logger.info(f"Trade blocked: {confidence_reason}")
                 return False
             
-            logger.info(f"✅ Adaptive confidence check passed: {confidence_reason}")
+            logger.info(f" Adaptive confidence check passed: {confidence_reason}")
             
-            # 🔥 CRITICAL FIXES: ENFORCE DISCIPLINED TRADING RULES
-            logger.info(f"🛡️ Applying critical trading discipline checks for {symbol}...")
+            # CRITICAL FIXES: ENFORCE DISCIPLINED TRADING RULES
+            logger.info(f" Applying critical trading discipline checks for {symbol}...")
             
             # CRITICAL FIX #1: ONE DIRECTION PER PAIR
             direction_allowed, direction_reason = self._check_trade_direction_consistency(symbol, signal)
             if not direction_allowed:
-                logger.warning(f"🔒 Trade blocked: {direction_reason}")
+                logger.warning(f" Trade blocked: {direction_reason}")
                 return False
-            logger.info(f"✅ Direction check passed: {direction_reason}")
+            logger.info(f" Direction check passed: {direction_reason}")
             
             # CRITICAL FIX #2: STRONG COOLDOWN PER PAIR
-            cooldown_allowed, cooldown_reason = self._check_strong_cooldown(symbol)
+            cooldown_allowed, cooldown_reason = self._check_strong_cooldown(symbol, timeframe)
             if not cooldown_allowed:
-                logger.warning(f"⏰ Trade blocked: {cooldown_reason}")
+                logger.warning(f"Trade blocked: {cooldown_reason}")
                 return False
-            logger.info(f"✅ Cooldown check passed: {cooldown_reason}")
+            logger.info(f" Cooldown check passed: {cooldown_reason}")
             
             # CRITICAL FIX #3: MINIMUM PROFIT DISTANCE
-            distance_allowed, distance_reason = self._check_minimum_profit_distance(symbol, entry_price, stop_loss, take_profit)
+            distance_allowed, distance_reason = self._check_minimum_profit_distance(symbol, entry_price, stop_loss, take_profit, timeframe)
             if not distance_allowed:
-                logger.warning(f"📏 Trade blocked: {distance_reason}")
+                logger.warning(f" Trade blocked: {distance_reason}")
                 return False
-            logger.info(f"✅ Profit distance check passed: {distance_reason}")
+            logger.info(f" Profit distance check passed: {distance_reason}")
             
             # CRITICAL FIX #4: TRADE LIMIT PER PAIR
             limit_allowed, limit_reason = self._check_trade_limit_per_pair(symbol)
             if not limit_allowed:
-                logger.warning(f"🚫 Trade blocked: {limit_reason}")
+                logger.warning(f" Trade blocked: {limit_reason}")
                 return False
-            logger.info(f"✅ Trade limit check passed: {limit_reason}")
+            logger.info(f" Trade limit check passed: {limit_reason}")
+
+            # One open position per timeframe (M15 and M5 can each hold one)
+            slot_allowed, slot_reason = self._check_timeframe_slot(symbol, timeframe)
+            if not slot_allowed:
+                logger.warning(f" Trade blocked: {slot_reason}")
+                return False
+            logger.info(f" Timeframe slot check passed: {slot_reason}")
             
             # CRITICAL FIX #5: LOSS PROTECTION
             loss_allowed, loss_reason = self._check_loss_protection(symbol)
             if not loss_allowed:
-                logger.warning(f"🛑 Trade blocked: {loss_reason}")
+                logger.warning(f" Trade blocked: {loss_reason}")
                 return False
-            logger.info(f"✅ Loss protection check passed: {loss_reason}")
+            logger.info(f" Loss protection check passed: {loss_reason}")
             
-            logger.info(f"🎯 ALL CRITICAL CHECKS PASSED for {symbol}")
+            logger.info(f" ALL CRITICAL CHECKS PASSED for {symbol}")
             
             logger.info(f"LIVE TRADE REQUEST:")
             logger.info(f"   Signal: {signal}")
@@ -1522,7 +1576,7 @@ Bot: Nyx AI Level 6
                 current_hour = datetime.now().hour
                 if not hasattr(self, '_last_session_block_hour') or current_hour != self._last_session_block_hour:
                     if self.telegram:
-                        self.telegram.send_message(f"⏰ Trading blocked: {session_reason}")
+                        self.telegram.send_message(f"Trading blocked: {session_reason}")
                     self._last_session_block_hour = current_hour
                 return False
                 
@@ -1534,7 +1588,7 @@ Bot: Nyx AI Level 6
                 current_hour = datetime.now().hour
                 if not hasattr(self, '_last_volatility_block_hour') or current_hour != self._last_volatility_block_hour:
                     if self.telegram:
-                        self.telegram.send_message(f"📊 Volatility filter: {volatility_reason}")
+                        self.telegram.send_message(f" Volatility filter: {volatility_reason}")
                     self._last_volatility_block_hour = current_hour
                 return False
                 
@@ -1546,7 +1600,7 @@ Bot: Nyx AI Level 6
                 current_hour = datetime.now().hour
                 if not hasattr(self, '_last_correlation_block_hour') or current_hour != self._last_correlation_block_hour:
                     if self.telegram:
-                        self.telegram.send_message(f"🔗 Correlation control: {correlation_reason}")
+                        self.telegram.send_message(f" Correlation control: {correlation_reason}")
                     self._last_correlation_block_hour = current_hour
                 return False
                 
@@ -1558,7 +1612,7 @@ Bot: Nyx AI Level 6
                 current_hour = datetime.now().hour
                 if not hasattr(self, '_last_risk_block_hour') or current_hour != self._last_risk_block_hour:
                     if self.telegram:
-                        self.telegram.send_message(f"⚠️ Global risk: {risk_reason}")
+                        self.telegram.send_message(f" Global risk: {risk_reason}")
                     self._last_risk_block_hour = current_hour
                 return False
             
@@ -1586,7 +1640,7 @@ Bot: Nyx AI Level 6
                 current_hour = datetime.now().hour
                 if not hasattr(self, '_last_safety_block_hour') or current_hour != self._last_safety_block_hour:
                     if self.telegram:
-                        self.telegram.send_message(f"⚠️ Safety filter: {safety_message}")
+                        self.telegram.send_message(f" Safety filter: {safety_message}")
                     self._last_safety_block_hour = current_hour
                 return False
             
@@ -1600,10 +1654,10 @@ Bot: Nyx AI Level 6
             #     if not intelligent_decision:
             #         logger.warning(f" Trade blocked by intelligence: {decision_reason}")
             #         if self.telegram:
-            #             self.telegram.send_message(f"🧠 Intelligence filter: {decision_reason}")
+            # self.telegram.send_message(f" Intelligence filter: {decision_reason}")
             #         return False
             
-            logger.info(f"✅ Level 3 intelligence check bypassed for {symbol} (temporary fix)")
+            logger.info(f" Level 3 intelligence check bypassed for {symbol} (temporary fix)")
             
             # NEW: Adaptive lot sizing
             account = get_account_info()
@@ -1619,15 +1673,37 @@ Bot: Nyx AI Level 6
                 logger.info(f"Dynamic lot sizing: Base={adaptive_lot:.3f}, Multiplier={self._current_lot_multiplier:.1f}, Final={final_lot_size:.3f}")
                 
                 # NEW: Calculate profit targets
-                profit_levels = self.profit_targets.calculate_profit_levels(entry_price, stop_loss, signal)
-                if profit_levels:
-                    take_profit = profit_levels['partial_tp']  # Use 1.5R for partial
-                    logger.info(f"Using intelligent profit targets: Partial TP at {take_profit:.5f}")
-                else:
-                    take_profit = None  # Use original calculation
+                # The old code replaced the structure take-profit with a 1.5R "partial"
+                # target. Orders are now placed straight from Python and no partial-close
+                # logic runs on the broker side, so that silently capped every winner at
+                # 1.5R and bypassed the 2:1 minimum. The signal's own take-profit is kept.
+                logger.info(f"Keeping structure take-profit at {take_profit:.5f}" if take_profit else "No take-profit supplied")
+
+                # Stop-loss floor: a stop tighter than ~1 ATR (of the signal's timeframe) (plus the spread) is just
+                # market noise (the first live trade was stopped out in 2.5 minutes).
+                # Widen the stop to the floor, and keep reward:risk at the 2:1 minimum.
+                try:
+                    atr_now = self.get_atr(symbol, timeframe, 14)
+                    if atr_now is not None and hasattr(atr_now, '__len__') and len(atr_now) > 0:
+                        atr_now = atr_now[-1]
+                    tick_now = mt5.symbol_info_tick(symbol)
+                    spread_now = (tick_now.ask - tick_now.bid) if tick_now else 0.0
+                    if atr_now and atr_now > 0 and stop_loss:
+                        floor_dist = float(atr_now) + spread_now
+                        sl_dist = abs(entry_price - stop_loss)
+                        if sl_dist < floor_dist:
+                            sl_dist = floor_dist
+                            stop_loss = entry_price - sl_dist if signal == "BUY" else entry_price + sl_dist
+                            logger.info(f"Stop widened to 1x {timeframe} ATR + spread: SL {stop_loss:.5f} (distance {sl_dist:.2f})")
+                        min_tp_dist = sl_dist * elite_config.MIN_RR_RATIO
+                        if take_profit is None or abs(take_profit - entry_price) < min_tp_dist:
+                            take_profit = entry_price + min_tp_dist if signal == "BUY" else entry_price - min_tp_dist
+                            logger.info(f"Take-profit set for {elite_config.MIN_RR_RATIO}:1 reward:risk: TP {take_profit:.5f}")
+                except Exception as e:
+                    logger.warning(f"Stop/target adjustment skipped: {e}")
             
             # EXECUTE TRADE (Signal Bridge Export)
-            logger.info(f"📤 Exporting trade signal to MT5 via bridge for {symbol}...")
+            logger.info(f" Exporting trade signal to MT5 via bridge for {symbol}...")
             result = place_trade(
                 symbol=symbol,
                 signal=signal,
@@ -1636,7 +1712,8 @@ Bot: Nyx AI Level 6
                 tp=take_profit,
                 confidence=confidence,
                 score=trade_score,
-                entry_price=entry_price
+                entry_price=entry_price,
+                comment=f"NYX {timeframe}"
             )
             
             logger.info(f"Signal bridge returned: {result}")
@@ -1654,8 +1731,8 @@ Bot: Nyx AI Level 6
                 logger.info(f"{symbol} | {signal} | Conf: {confidence:.1f}% | Score: {trade_score:.2f} | SIGNAL SENT")
                 
                 # LEVEL 5: Update trade memory and time for anti-spam
-                self._last_trade_time[symbol] = current_time
-                self._trade_memory[symbol] = (signal, current_time)  # Store signal and time
+                self._last_trade_time[tf_key] = current_time
+                self._trade_memory[tf_key] = (signal, current_time)  # Store signal and time
                 
                 # Save trade to memory system
                 trade_memory.save_trade(
@@ -1671,7 +1748,7 @@ Bot: Nyx AI Level 6
                 self._update_trade_direction(symbol, signal)
                 
                 # Update cycle count for cooldown
-                self._update_cycle_count(symbol)
+                self._update_cycle_count(symbol, timeframe)
                 
                 # Note: Loss tracking will be updated when trade closes (in profit/loss monitoring)
                 
@@ -1703,9 +1780,9 @@ Score: {trade_score:.3f}
                 # LEVEL 5: Clean logging - only important events
                 logger.info(f"SIGNAL SENT: {symbol} {signal} @ {entry_price:.5f} (Score: {trade_score:.3f})")
                 
-                # LEVEL 10.1: INCREMENT DAILY TRADE COUNTER
-                elite_config.increment_trades()
-                logger.info(f"ELITE: Daily trades now: {elite_config.trades_today}/{elite_config.MAX_TRADES_PER_DAY}")
+                # Daily trade counting is now handled solely by
+                # elite_override (EliteTradeOverride), the one system that
+                # actually gates on it - see removal note in EliteTradingConfig.
                 
                 # LEVEL 9: Log signal export to analytics
                 analytics.log_trade_execution(
@@ -1735,8 +1812,8 @@ Score: {trade_score:.3f}
         except Exception as e:
             # LEVEL 5: Safe execution - wrap entire function in try/except
             import traceback
-            logger.error(f"❌ Critical error in trade execution: {e}")
-            logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+            logger.error(f" Critical error in trade execution: {e}")
+            logger.error(f" Traceback: {traceback.format_exc()}")
             return False  # Continue bot loop, do NOT crash
     
     def monitor_positions(self):
@@ -1877,17 +1954,27 @@ Score: {trade_score:.3f}
             if success:
                 logger.info(f"Successfully closed trade {ticket}")
                 
-                # 🔥 CRITICAL FIX #5: UPDATE LOSS TRACKING
+                # CRITICAL FIX #5: UPDATE LOSS TRACKING
                 was_profitable = position.profit > 0
-                self._update_loss_tracking(position.symbol, was_profitable)
+                self._update_loss_tracking(position.symbol, was_profitable, profit=position.profit)
+
+                # Update the SEPARATE trade_memory_system.py record too - this
+                # is what get_adaptive_threshold() actually reads for the live
+                # trade-approval gate (should_trade()), and it was never being
+                # updated past its trade-open "SIGNAL SENT" placeholder.
+                trade_memory.update_trade_result(
+                    position.symbol,
+                    result="WIN" if was_profitable else "LOSS",
+                    profit=position.profit
+                )
                 
                 if self.telegram:
-                    self.telegram.send_message(f"✅ Trade {ticket} closed - P&L: ${position.profit:+.2f}")
+                    self.telegram.send_message(f" Trade {ticket} closed - P&L: ${position.profit:+.2f}")
                 return True
             else:
                 logger.error(f"Failed to close trade {ticket}")
                 if self.telegram:
-                    self.telegram.send_message(f"❌ Failed to close trade {ticket}")
+                    self.telegram.send_message(f" Failed to close trade {ticket}")
                 return False
             
         except Exception as e:
@@ -1895,7 +1982,14 @@ Score: {trade_score:.3f}
             return False
     
     def manage_trade_lifecycle(self):
-        """Manage trade lifecycle with smarter logic"""
+        """Manage trade lifecycle with smarter logic.
+
+        The fixed-dollar (+/-5 USD) and 45-minute forced closes override the
+        stop-loss / take-profit the strategy was designed and backtested with,
+        so they are OFF by default. Set NYX_LIFECYCLE_CLOSE=1 to re-enable.
+        """
+        if os.environ.get("NYX_LIFECYCLE_CLOSE", "0") != "1":
+            return
         try:
             open_trades = self.check_open_trades()
             

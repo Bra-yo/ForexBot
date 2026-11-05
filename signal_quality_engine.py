@@ -32,7 +32,7 @@ class SignalQualityEngine:
     def calculate_momentum(self, rsi):
         """Calculate momentum strength based on RSI extremes"""
         try:
-            # 🔥 LEVEL 10.2: MORE DYNAMIC MOMENTUM
+            # LEVEL 10.2: MORE DYNAMIC MOMENTUM
             if rsi > 70 or rsi < 30:
                 return 1.0
             elif rsi > 65 or rsi < 35:
@@ -65,7 +65,7 @@ class SignalQualityEngine:
     def calculate_volatility(self, atr):
         """Calculate volatility strength based on ATR"""
         try:
-            # 🔥 LEVEL 10.2: LESS HARSH VOLATILITY SCORING
+            # LEVEL 10.2: LESS HARSH VOLATILITY SCORING
             if atr > 0.003:
                 return 1.0
             elif atr > 0.002:
@@ -84,7 +84,7 @@ class SignalQualityEngine:
     def final_score(self, trend, momentum, volume, volatility):
         """LEVEL 10.2: Calculate final weighted signal quality score"""
         try:
-            # 🔥 LEVEL 10.2: BOOSTED DYNAMICS
+            # LEVEL 10.2: BOOSTED DYNAMICS
             score = (
                 trend * 0.30 +      # Trend (30%)
                 momentum * 0.30 +    # Momentum (30%) - increased from 25%
@@ -111,7 +111,7 @@ class SignalQualityEngine:
             
             # Log detailed analysis
             analysis_lines = [
-                "Trade score returned: 0.57",
+                f"Trade score returned: {score:.2f}",
                 f"FINAL SCORE: {score:.2f}"
             ]
             self.logger.info("\n".join(analysis_lines))
@@ -126,13 +126,13 @@ class SignalQualityEngine:
     def check_trend_alignment(self, trade_type, ema_fast, ema_slow):
         """LEVEL 10.2: TREND KING MODE - BLOCK COUNTER-TREND"""
         try:
-            # 🔥 LEVEL 10.2: TREND IS KING - NO COMPROMISE
+            # LEVEL 10.2: TREND IS KING - NO COMPROMISE
             if trade_type.upper() == "BUY" and ema_fast < ema_slow:
-                return False, "❌ REJECTED: BUY signal against downtrend - TREND IS KING"
+                return False, " REJECTED: BUY signal against downtrend - TREND IS KING"
             if trade_type.upper() == "SELL" and ema_fast > ema_slow:
-                return False, "❌ REJECTED: SELL signal against uptrend - TREND IS KING"
+                return False, " REJECTED: SELL signal against uptrend - TREND IS KING"
             
-            return True, "✅ Trend alignment confirmed - TREND IS KING"
+            return True, " Trend alignment confirmed - TREND IS KING"
             
         except Exception as e:
             self.logger.error(f"Error checking trend alignment: {e}")

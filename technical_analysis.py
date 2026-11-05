@@ -488,6 +488,247 @@ class TechnicalAnalysis:
             logger.error(f"Error analyzing signals: {e}")
             return {'signal': 'WAIT', 'strength': 0, 'reasons': ['Analysis error'], 'all_signals': []}
     
+    def calculate_volume_profile(self, data, num_bins=24, value_area_pct=0.70):
+        """
+        Volume Profile / Point of Control (PoC) / Value Area, computed
+        purely from OHLCV data already available - no external data needed.
+
+        Real, well-established technique (from Market Profile theory,
+        originated at the CBOT in the 1980s): bucket traded volume by price
+        level across a window, rather than just by time. The price level
+        with the most volume is the PoC - a level the market spent the most
+        "effort" at, which often acts as a magnet/reaction zone when price
+        returns to it. Value Area is the price band containing
+        value_area_pct (conventionally 70%) of the window's total volume,
+        centered on the PoC.
+
+        Caveat worth knowing: MT5's 'volume' column here is tick volume
+        (count of price changes), not true transacted volume - retail
+        forex/CFD brokers don't have visibility into real market-wide
+        volume the way a regulated futures exchange does. It's a reasonable
+        proxy, especially for a heavily-traded symbol like gold during
+        liquid sessions, but it's not the same rigor as Volume Profile
+        computed on real CME Gold futures volume.
+
+        This assigns each candle's full volume to the bin containing its
+        typical price ((high+low+close)/3) - a standard simplification;
+        true Volume Profile tools distribute each candle's volume across
+        every bin its range touches, which gives a smoother profile but
+        needs tick-level or much finer OHLC data than a bot polling every
+        minute realistically has.
+
+        Args:
+            data: OHLCV DataFrame window representing the range/session to
+                  profile (e.g. the current day's candles, or a detected
+                  consolidation range)
+            num_bins: number of price buckets to divide the window's
+                      high-low range into
+            value_area_pct: fraction of total volume the value area should
+                             contain (0.70 is the conventional default)
+
+        Returns:
+            dict with poc_price, value_area_high, value_area_low,
+            current_vs_poc ('ABOVE'/'AT'/'BELOW'), distance_to_poc_pct
+        """
+        try:
+            if data is None or len(data) < 5 or 'volume' not in data.columns:
+                return {'available': False}
+
+            price_low = data['low'].min()
+            price_high = data['high'].max()
+            if price_high <= price_low:
+                return {'available': False}
+
+            bin_edges = np.linspace(price_low, price_high, num_bins + 1)
+            bin_volumes = np.zeros(num_bins)
+
+            typical_price = (data['high'] + data['low'] + data['close']) / 3
+            bin_indices = np.clip(
+                np.digitize(typical_price, bin_edges) - 1, 0, num_bins - 1
+            )
+            for idx, vol in zip(bin_indices, data['volume']):
+                bin_volumes[idx] += vol
+
+            total_volume = bin_volumes.sum()
+            if total_volume <= 0:
+                return {'available': False}
+
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            poc_idx = int(np.argmax(bin_volumes))
+            poc_price = bin_centers[poc_idx]
+
+            # Expand outward from the PoC bin until value_area_pct of total
+            # volume is captured - the standard Value Area construction.
+            included = {poc_idx}
+            accumulated = bin_volumes[poc_idx]
+            low_idx, high_idx = poc_idx, poc_idx
+            while accumulated < total_volume * value_area_pct and (low_idx > 0 or high_idx < num_bins - 1):
+                vol_below = bin_volumes[low_idx - 1] if low_idx > 0 else -1
+                vol_above = bin_volumes[high_idx + 1] if high_idx < num_bins - 1 else -1
+                if vol_above >= vol_below:
+                    high_idx += 1
+                    accumulated += bin_volumes[high_idx]
+                    included.add(high_idx)
+                else:
+                    low_idx -= 1
+                    accumulated += bin_volumes[low_idx]
+                    included.add(low_idx)
+
+            value_area_high = bin_centers[high_idx]
+            value_area_low = bin_centers[low_idx]
+
+            current_price = data['close'].iloc[-1]
+            if current_price > poc_price * 1.0005:
+                current_vs_poc = 'ABOVE'
+            elif current_price < poc_price * 0.9995:
+                current_vs_poc = 'BELOW'
+            else:
+                current_vs_poc = 'AT'
+            distance_to_poc_pct = abs(current_price - poc_price) / poc_price * 100
+
+            return {
+                'available': True,
+                'poc_price': round(poc_price, 2),
+                'value_area_high': round(value_area_high, 2),
+                'value_area_low': round(value_area_low, 2),
+                'current_vs_poc': current_vs_poc,
+                'distance_to_poc_pct': round(distance_to_poc_pct, 3),
+            }
+        except Exception as e:
+            logger.debug(f"Volume profile calculation unavailable: {e}")
+            return {'available': False}
+
+    def calculate_vwap(self, data, std_multiplier=2.0):
+        """
+        Session VWAP (Volume Weighted Average Price) with standard
+        deviation bands, computed purely from OHLCV data already available.
+
+        VWAP is arguably the single most-watched institutional benchmark
+        for intraday levels - more fundamental than Volume Profile to many
+        desks, since it's literally the volume-weighted average price paid
+        across the window, and is used both as a fair-value reference and
+        a mean-reversion anchor. Research directly supports combining this
+        with the PoC above: when a Volume Profile PoC and VWAP sit close
+        together, that confluence is considered a stronger reaction zone
+        than either alone - this does NOT compute that confluence itself,
+        that comparison happens where both are used together.
+
+        Same tick-volume caveat as calculate_volume_profile() applies here.
+
+        Args:
+            data: OHLCV DataFrame window representing the session to
+                  compute VWAP over (VWAP is meant to reset per session -
+                  pass in just the current session's candles, not an
+                  arbitrary multi-day window, or the "session" framing
+                  stops being meaningful)
+            std_multiplier: how many standard deviations the outer bands
+                             sit from VWAP (2.0 is a common default)
+
+        Returns:
+            dict with vwap, upper_band, lower_band, current_vs_vwap
+            ('ABOVE'/'AT'/'BELOW'), distance_to_vwap_pct
+        """
+        try:
+            if data is None or len(data) < 5 or 'volume' not in data.columns:
+                return {'available': False}
+
+            typical_price = (data['high'] + data['low'] + data['close']) / 3
+            volume = data['volume']
+            total_volume = volume.sum()
+            if total_volume <= 0:
+                return {'available': False}
+
+            vwap = (typical_price * volume).sum() / total_volume
+
+            variance = ((typical_price - vwap) ** 2 * volume).sum() / total_volume
+            std_dev = variance ** 0.5
+
+            upper_band = vwap + std_multiplier * std_dev
+            lower_band = vwap - std_multiplier * std_dev
+
+            current_price = data['close'].iloc[-1]
+            if current_price > vwap * 1.0005:
+                current_vs_vwap = 'ABOVE'
+            elif current_price < vwap * 0.9995:
+                current_vs_vwap = 'BELOW'
+            else:
+                current_vs_vwap = 'AT'
+            distance_to_vwap_pct = abs(current_price - vwap) / vwap * 100
+
+            return {
+                'available': True,
+                'vwap': round(vwap, 2),
+                'upper_band': round(upper_band, 2),
+                'lower_band': round(lower_band, 2),
+                'current_vs_vwap': current_vs_vwap,
+                'distance_to_vwap_pct': round(distance_to_vwap_pct, 3),
+            }
+        except Exception as e:
+            logger.debug(f"VWAP calculation unavailable: {e}")
+            return {'available': False}
+
+    def check_dollar_correlation(self, mt5_connector, as_of=None):
+        """
+        Check USD strength via EURUSD as a proxy, and how it relates to a
+        gold trade direction.
+
+        This does NOT exist to block trades - it's a diagnostic factor,
+        logged into analysis_result['factors']['dollar_correlation'] but
+        never touching trade_blocked or confidence. Gold is well-documented
+        as inversely correlated with dollar strength (a strengthening dollar
+        is generally a headwind for gold, and vice versa); EURUSD is used as
+        the proxy since it's the most liquid pair and moves largely opposite
+        to broad dollar strength, and because MT5's Market Watch here almost
+        certainly already has it from this bot's pre-Gold-pivot life as a
+        10-pair forex bot, unlike a dedicated DXY/USDX symbol which not every
+        broker lists.
+
+        This is new, unvalidated logic - it hasn't been through the
+        backtesting discipline the rest of this system has, and the right
+        next step before ever making it a hard filter is extending
+        run_gold_backtest.py to pull EURUSD alongside XAUUSD and measure
+        whether "aligned" trades actually outperform "conflicting" ones.
+        Guessing at that from live logs alone risks exactly the kind of
+        unvalidated assumption this whole project has worked to avoid.
+
+        Returns:
+            dict: {'usd_trend': 'BULLISH'/'BEARISH'/'SIDEWAYS', 'available': bool}
+        """
+        try:
+            from datetime import datetime, timedelta
+            end_date = as_of if as_of is not None else datetime.now()
+            start_date = end_date - timedelta(days=100)
+
+            eurusd_data = mt5_connector.get_historical_data(
+                symbol='EURUSD',
+                timeframe='H4',
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            if eurusd_data is None or 'error' in eurusd_data or len(eurusd_data) < 50:
+                return {'usd_trend': 'UNKNOWN', 'available': False}
+
+            ema50 = talib.EMA(eurusd_data['close'].values, timeperiod=50)
+            ema200 = talib.EMA(eurusd_data['close'].values, timeperiod=200)
+            current_price = eurusd_data['close'].iloc[-1]
+
+            if current_price > ema50[-1] > ema200[-1]:
+                eurusd_trend = 'BULLISH'  # EUR strengthening = USD weakening
+            elif current_price < ema50[-1] < ema200[-1]:
+                eurusd_trend = 'BEARISH'  # EUR weakening = USD strengthening
+            else:
+                eurusd_trend = 'SIDEWAYS'
+
+            # USD trend is roughly the inverse of EURUSD's trend
+            usd_trend = {'BULLISH': 'BEARISH', 'BEARISH': 'BULLISH', 'SIDEWAYS': 'SIDEWAYS'}[eurusd_trend]
+
+            return {'usd_trend': usd_trend, 'available': True}
+
+        except Exception as e:
+            logger.debug(f"Dollar correlation check unavailable: {e}")
+            return {'usd_trend': 'UNKNOWN', 'available': False}
+
     def analyze_higher_timeframe_trend(self, mt5_connector, symbol, current_timeframe='M15', as_of=None):
         """
         Analyze trend on higher timeframe using proper EMA logic
@@ -917,13 +1158,53 @@ class TechnicalAnalysis:
             analysis_result['signal'] = basic_signal['signal']
             analysis_result['factors']['basic_signal'] = basic_signal['signal']
             analysis_result['factors']['basic_strength'] = basic_signal['strength']
+            logger.info(f" Raw signal for {symbol} {timeframe}: {basic_signal['signal']} "
+                        f"(strength {basic_signal['strength']:.1f}) - before any gates/filters")
             
             # 2. Higher Timeframe Trend Analysis
             htf_trend = self.analyze_higher_timeframe_trend(mt5_connector, symbol, timeframe, as_of=as_of)
             analysis_result['htf_trend'] = htf_trend['trend']
             analysis_result['factors']['htf_trend'] = htf_trend['trend']
             analysis_result['factors']['htf_strength'] = htf_trend['strength']
-            
+
+            # 2b. Dollar correlation (diagnostic only - see check_dollar_correlation
+            # docstring for why this doesn't block trades yet)
+            dollar_check = self.check_dollar_correlation(mt5_connector, as_of=as_of)
+            analysis_result['factors']['usd_trend'] = dollar_check['usd_trend']
+            if dollar_check['available'] and basic_signal['signal'] in ('BUY', 'SELL', 'WEAK BUY', 'WEAK SELL'):
+                direction = 'BUY' if 'BUY' in basic_signal['signal'] else 'SELL'
+                usd_trend = dollar_check['usd_trend']
+                if (direction == 'BUY' and usd_trend == 'BEARISH') or (direction == 'SELL' and usd_trend == 'BULLISH'):
+                    analysis_result['factors']['dollar_correlation'] = 'ALIGNED'
+                elif (direction == 'BUY' and usd_trend == 'BULLISH') or (direction == 'SELL' and usd_trend == 'BEARISH'):
+                    analysis_result['factors']['dollar_correlation'] = 'CONFLICTING'
+                else:
+                    analysis_result['factors']['dollar_correlation'] = 'NEUTRAL'
+            else:
+                analysis_result['factors']['dollar_correlation'] = 'UNAVAILABLE'
+
+            # 2c. Volume Profile / PoC / Value Area and Session VWAP -
+            # diagnostic only, same reasoning as dollar_correlation above:
+            # these are new and unvalidated against a real backtest, so they
+            # get logged for visibility first rather than gating any trade.
+            # Last ~100 candles as a proxy "session" window - a true session
+            # reset (midnight, or exchange open) would need the real
+            # timestamp boundaries, which isn't threaded through here yet.
+            recent_window = data.tail(100) if len(data) >= 20 else data
+            volume_profile = self.calculate_volume_profile(recent_window)
+            vwap_data = self.calculate_vwap(recent_window)
+            analysis_result['factors']['volume_profile'] = volume_profile
+            analysis_result['factors']['vwap'] = vwap_data
+            if volume_profile.get('available') and vwap_data.get('available'):
+                poc_vwap_gap_pct = abs(volume_profile['poc_price'] - vwap_data['vwap']) / vwap_data['vwap'] * 100
+                # "Close together" threshold here is a starting guess (0.1%
+                # of gold's price, roughly $4-5 at ~4300), not a backtested
+                # value - treat this confluence flag the same as the dollar
+                # correlation one: informative, not yet a filter.
+                analysis_result['factors']['poc_vwap_confluence'] = poc_vwap_gap_pct < 0.1
+            else:
+                analysis_result['factors']['poc_vwap_confluence'] = False
+
             # 3. Market Condition Detection
             market_condition = self.detect_market_condition(data)
             market_condition = self._validate_market_condition_data(market_condition)
@@ -1114,27 +1395,50 @@ class TechnicalAnalysis:
             confidence_factors.append(('basic_signal', basic_signal['strength'], 0.3))
             
             # HTF trend alignment (25% weight)
+            # Was all-or-nothing: full credit only when H4 trend exactly
+            # matched the trade direction, ZERO for anything else -
+            # including a merely SIDEWAYS/neutral H4 trend, which isn't
+            # actually opposing the trade, just not actively confirming it.
+            # This was the dominant reason strong raw signals (e.g. 85%
+            # basic_signal strength) were landing at ~40% final confidence:
+            # a genuinely non-hostile neutral H4 read was being scored
+            # identically to a directly opposing one. Partial credit for
+            # neutral is more honest about what "neutral" actually means.
             htf_alignment_score = 0
             if basic_signal['signal'] == 'BUY' and htf_trend['trend'] == 'BULLISH':
                 htf_alignment_score = htf_trend['strength']
             elif basic_signal['signal'] == 'SELL' and htf_trend['trend'] == 'BEARISH':
                 htf_alignment_score = htf_trend['strength']
+            elif htf_trend['trend'] == 'SIDEWAYS':
+                htf_alignment_score = htf_trend['strength'] * 0.5
             confidence_factors.append(('htf_alignment', htf_alignment_score, 0.25))
             
             # Market condition (20% weight) - adjusted for flexibility
+            # Was checking for 'SIDEWAYS', but detect_market_condition()
+            # never returns that string - it returns 'ACTIVE' for normal,
+            # moderate conditions (see its own condition logic above). That
+            # meant every genuinely normal/healthy market - likely the most
+            # common state on M5 - fell through to the catch-all else branch
+            # and got scored as RANGING (20, the worst tier), not because
+            # conditions were actually poor, just because of this mismatch.
             market_score = 0
             if market_condition['condition'] == 'TRENDING':
                 market_score = 80
             elif market_condition['condition'] == 'VOLATILE':
                 market_score = 60
-            elif market_condition['condition'] == 'SIDEWAYS':
-                market_score = 40  # Allow moderate conditions
-            else:  # RANGING
+            elif market_condition['condition'] == 'ACTIVE':
+                market_score = 50  # Normal, healthy conditions - not as
+                # strong a confirmation as an active TREND, but not remotely
+                # equivalent to RANGING (dead/low-opportunity) either.
+            else:  # RANGING, or any genuinely unrecognized condition
                 market_score = 20
             confidence_factors.append(('market_condition', market_score, 0.2))
             
             # Entry confirmation (25% weight)
             confidence_factors.append(('entry_confirmation', entry_confirmation['strength'], 0.25))
+            
+            logger.info(f"   Confidence factors: " +
+                        ", ".join(f"{name}={score:.1f}(w={weight})" for name, score, weight in confidence_factors))
             
             # Calculate weighted confidence
             weighted_confidence = 0

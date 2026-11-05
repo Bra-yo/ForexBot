@@ -59,6 +59,38 @@ class TradeMemorySystem:
         except Exception as e:
             logger.error(f"Failed to save trade: {e}")
     
+    def update_trade_result(self, symbol: str, result: str, profit: float):
+        """
+        Update the most recent pending ("SIGNAL SENT") record for this symbol
+        with its real outcome once the trade actually closes.
+
+        This method never existed before - save_trade() was only ever called
+        once, at trade-open time, with result="SIGNAL SENT" and profit=0.0 as
+        explicit placeholders ("Will be updated when trade closes" - but
+        nothing ever called back to do that update). Every record in this
+        file was permanently stuck as "SIGNAL SENT"/$0.00, which means
+        get_adaptive_threshold() below - the value the live trade-approval
+        gate actually uses - was computing win_rate from data that could
+        never register a real win, regardless of how the bot actually
+        performed. There's no ticket/ID stored per trade, so this matches by
+        symbol + most recent pending entry, which is adequate for a single
+        symbol at a time but would need a real key if multiple concurrent
+        positions per symbol ever need independent tracking here.
+        """
+        try:
+            trades = self.load_trade_history()
+            for trade in reversed(trades):
+                if trade.get('symbol') == symbol and trade.get('result') == 'SIGNAL SENT':
+                    trade['result'] = result
+                    trade['profit'] = round(profit, 2)
+                    with open(self.memory_file, 'w') as f:
+                        json.dump(trades, f, indent=2)
+                    logger.info(f"Trade result updated: {symbol} | Result: {result} | Profit: ${profit:.2f}")
+                    return
+            logger.warning(f"No pending SIGNAL SENT record found for {symbol} to update")
+        except Exception as e:
+            logger.error(f"Failed to update trade result: {e}")
+
     def load_trade_history(self) -> List[Dict[str, Any]]:
         """Load trade history from file"""
         try:

@@ -19,8 +19,9 @@ class AdaptiveConfidenceSystem:
         self.base_threshold = base_threshold
         self.learning_system = learning_system
         self.current_threshold = base_threshold
-        self.min_threshold = 60.0
-        self.max_threshold = 90.0
+        # Frozen: one threshold only. No automatic drift away from the base.
+        self.min_threshold = base_threshold
+        self.max_threshold = base_threshold
         
         # Performance tracking
         self.performance_history = []
@@ -45,7 +46,9 @@ class AdaptiveConfidenceSystem:
             return self.base_threshold
     
     def adjust_threshold(self):
-        """Adjust threshold based on recent performance"""
+        """Disabled: the threshold is a single fixed value (see confidence_config.py)"""
+        self.current_threshold = self.base_threshold
+        return
         try:
             if not self.learning_system:
                 logger.warning("No learning system available for adaptive adjustment")

@@ -22,13 +22,12 @@ def main():
     print("   [OK] MT5 Terminal is running")
     print("   [OK] Account is DEMO (not real money) - VERIFY THIS YOURSELF IN MT5 BEFORE TYPING NYX-START")
     print("   [OK] Lot size is capped at 0.5")
-    print("   [OK] Max 7 open trades per symbol (one per timeframe)")
+    print("   [OK] Max 7 open trades per symbol")
     print("   [OK] No time-based exit - trades close on stop_loss/take_profit only")
-    print("   [OK] Spread filter (max 5.0 pips)")
     print("   [OK] Trading hours filter (6:00-20:00)")
     print("   [OK] Weekend protection")
     print("   [OK] Symbol: XAUUSD (Gold) - pivoted from multi-pair Forex")
-    print("   [OK] Multiple timeframes: M1, M5, M15, M30, H1, H4, D1")
+    print("   [OK] Timeframes: " + os.environ.get("NYX_TIMEFRAMES", "M15,M5") + " (up to 3 open trades per timeframe)")
 
     print("\nNYX AI RISK WARNING")
     print("   Nyx AI watches the Gold (XAUUSD) market 24/7")
@@ -39,16 +38,22 @@ def main():
     print("\nSTARTING NYX AI LIVE TRADING")
     print(f"   Time: {datetime.now().strftime('%H:%M:%S')}")
     print("   Symbol: XAUUSD (Gold)")
-    print("   Timeframes: M1, M5, M15, M30, H1, H4, D1")
+    print("   Timeframes: " + os.environ.get("NYX_TIMEFRAMES", "M15,M5"))
     print("   Cycle: Every 1 minute")
     print("   Max concurrent trades: 7")
 
-    confirm = input("\n   Type 'NYX-START' to begin multi-pair live trading: ")
+    if os.environ.get("NYX_AUTO_ARM") == "1":
+        # Started from the dashboard after login: the dashboard already
+        # checked the account type and asked for confirmation.
+        confirm = "NYX-START"
+        print("\n   Auto-armed by dashboard login.")
+    else:
+        confirm = input("\n   Type 'NYX-START' to begin multi-pair live trading: ")
     if confirm.upper() != 'NYX-START':
-        print("❌ Nyx AI multi-pair trading cancelled")
+        print(" Nyx AI multi-pair trading cancelled")
         sys.exit(0)
 
-    print("🔧 Initializing multi-pair trading bot...")
+    print(" Initializing multi-pair trading bot...")
 
     try:
         # Import and start bot

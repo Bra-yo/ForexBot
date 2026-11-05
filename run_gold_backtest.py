@@ -11,6 +11,8 @@ Usage:
     python run_gold_backtest.py --months 12
     python run_gold_backtest.py --start 2025-01-01 --end 2025-12-31
     python run_gold_backtest.py --timeframe M30
+    python run_gold_backtest.py --timeframe M5 --months 3 --variants   # old vs live rules, one pass
+    python run_gold_backtest.py --live-stops --min-confidence 45        # a single run with live rules
 
 Output:
     Prints a full summary (return, win rate, profit factor, Sharpe, drawdown)
@@ -34,6 +36,7 @@ matplotlib.use('Agg')
 
 from brokers.mt5_connector import MT5Connector
 from technical_analysis import TechnicalAnalysis
+from confidence_config import MIN_CONFIDENCE_PCT
 from backtest import BacktestEngine  # backtesting/backtest.py
 
 SYMBOL = "XAUUSD"
@@ -121,98 +124,119 @@ def fetch_data(connector, symbol, timeframe, start_date, end_date, label):
     return data
 
 
-def make_gold_strategy(ta: TechnicalAnalysis, htf_connector: OfflineHTFConnector, base_timeframe: str):
+MIN_RR_RATIO = 2.0       # matches EliteTradingConfig.MIN_RR_RATIO in live trading
+ATR_PERIOD = 14
+_ANALYSIS_CACHE = {}     # (timeframe, as_of) -> analysis record; shared by every variant so
+                         # the slow per-candle analysis only ever runs once per candle
+
+
+def _atr(window, period=ATR_PERIOD):
+    """Simple ATR of the trailing window (same idea as the live executor's get_atr)."""
+    high, low, close = window['high'], window['low'], window['close']
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    val = tr.tail(period).mean()
+    return float(val) if pd.notna(val) else 0.0
+
+
+def make_gold_strategy(ta: TechnicalAnalysis, htf_connector: OfflineHTFConnector, base_timeframe: str,
+                       min_conf: float = MIN_CONFIDENCE_PCT, live_stops: bool = False,
+                       spread: float = 0.40):
     """
     Wraps TechnicalAnalysis.advanced_signal_analysis() - the exact same
     pipeline used by MultiPairLiveBot.get_signal() in live trading - into the
     strategy_func(data_slice) -> dict interface BacktestEngine expects.
+
+    min_conf    single confidence floor (percent). Defaults to the shared live
+                value in confidence_config.py. The old version of this file
+                hard-coded 50 and 65, so the 45-65 band that the live bot
+                trades was never actually backtested.
+    live_stops  apply the live executor's stop/target rules: stop widened to at
+                least 1x ATR + spread, and take-profit pushed out to at least
+                2x the stop distance.
+    spread      USD spread used by the stop floor (gold: ~0.35-0.45 on demo).
     """
-    def strategy(data_slice: pd.DataFrame):
-        if len(data_slice) < 60:
-            return {'action': 'WAIT'}
-
-        # Cap the window fed into indicators/structure analysis to keep this
-        # tractable: BacktestEngine passes a GROWING slice (data.iloc[:i+1])
-        # on every candle. Every indicator here (RSI-14, MACD-26, BB-20,
-        # 20-candle structure lookback) only needs a few hundred candles of
-        # context - without this cap the structure-level swing-detection
-        # loop (pure Python) would make the whole backtest O(n^2), turning a
-        # few minutes into hours on a real multi-month dataset.
-        window = data_slice.tail(TRAILING_WINDOW)
+    def analyze(window):
+        # The expensive part. Cached per candle so that several variants
+        # (different confidence floors / stop rules) can share one pass.
         as_of = window.index[-1]
-
+        key = (base_timeframe, as_of)
+        if key in _ANALYSIS_CACHE:
+            return _ANALYSIS_CACHE[key]
+        rec = None
         try:
             enriched = ta.get_all_indicators(window)
             analysis = ta.advanced_signal_analysis(
                 htf_connector, enriched, SYMBOL, base_timeframe, as_of=as_of
             )
+            latest = enriched.iloc[-1]
+            rec = {
+                'signal': analysis.get('signal'),
+                'confidence': analysis.get('confidence', 0),
+                'blocked': analysis.get('trade_blocked', True),
+                'sl': analysis.get('structure_sl'),
+                'tp': analysis.get('structure_tp'),
+                'ma_fast': float(latest['ma_fast']) if pd.notna(latest.get('ma_fast')) else 0.0,
+                'ma_slow': float(latest['ma_slow']) if pd.notna(latest.get('ma_slow')) else 0.0,
+                'price': float(window['close'].iloc[-1]),
+                'atr': _atr(window),
+            }
         except Exception:
+            rec = None
+        _ANALYSIS_CACHE[key] = rec
+        return rec
+
+    def strategy(data_slice: pd.DataFrame):
+        if len(data_slice) < 60:
             return {'action': 'WAIT'}
 
-        signal = analysis.get('signal')
-        confidence = analysis.get('confidence', 0)
-        # Match MultiPairLiveBot.run_analysis_cycle()'s exact gate - it only
-        # ever considers a signal candidate when confidence > 50. Without
-        # this, the backtest took every non-blocked BUY/SELL regardless of
-        # confidence, trading far more often (and more recklessly) than the
-        # live bot ever would.
-        if analysis.get('trade_blocked', True) or signal not in ('BUY', 'SELL') or confidence <= 50:
+        # Cap the window fed into indicators/structure analysis to keep this
+        # tractable (BacktestEngine passes a GROWING slice on every candle).
+        window = data_slice.tail(TRAILING_WINDOW)
+        rec = analyze(window)
+        if rec is None:
             return {'action': 'WAIT'}
 
-        # SEPARATE, STRICTER gate: live_trading_executor.py's
-        # EliteTradingConfig.MIN_CONFIDENCE = 0.65 (65%) is a second,
-        # harder confidence floor applied inside execute_live_trade() -
-        # distinct from the >50 "candidate" filter above. A signal can
-        # clear 50% and still get silently blocked here in live trading.
-        # This was invisible even in the live logs (logged at a level
-        # that doesn't show by default) until that was fixed separately -
-        # replicating the actual gate here, not just the visible symptom.
-        if confidence < 65:
+        signal = rec['signal']
+        confidence = rec['confidence']
+
+        # One confidence floor, the same constant the live bot uses.
+        if rec['blocked'] or signal not in ('BUY', 'SELL') or confidence < min_conf:
             return {'action': 'WAIT'}
 
-        # Match live_trading_executor.py's SEPARATE "TREND IS KING" gate
-        # (SignalQualityEngine.check_trend_alignment) - this is a DIFFERENT,
-        # additional check from whatever advanced_signal_analysis() does
-        # internally, using the M15-scale fast/slow MAs, not the HTF trend.
-        # This is the exact gate that correctly rejected your live SELL
-        # signal twice ("SELL signal against uptrend").
-        #
-        # NOTE ON A BUG IN THE PREVIOUS VERSION OF THIS FILE: this used to
-        # read ema_fast/ema_slow from analysis.get('market_data', {}) - but
-        # advanced_signal_analysis() never sets that key; it's only ever
-        # populated by MultiPairLiveBot.get_signal() in the live bot, which
-        # this script doesn't call. So market_data was always {}, ema_fast/
-        # ema_slow were always 0, the "if ema_fast and ema_slow" guard was
-        # always false, and this entire check silently never ran - even
-        # though the code was genuinely present. Pulling the values directly
-        # from the enriched dataframe instead, the same place get_signal()
-        # actually gets them from.
-        latest = enriched.iloc[-1]
-        ema_fast = float(latest['ma_fast']) if pd.notna(latest.get('ma_fast')) else 0.0
-        ema_slow = float(latest['ma_slow']) if pd.notna(latest.get('ma_slow')) else 0.0
+        # "TREND IS KING" gate (SignalQualityEngine.check_trend_alignment):
+        # fast/slow MA direction must agree with the signal.
+        ema_fast, ema_slow = rec['ma_fast'], rec['ma_slow']
         if ema_fast and ema_slow:
             if signal == 'BUY' and ema_fast < ema_slow:
                 return {'action': 'WAIT'}
             if signal == 'SELL' and ema_fast > ema_slow:
                 return {'action': 'WAIT'}
 
-        sl = analysis.get('structure_sl')
-        tp = analysis.get('structure_tp')
-        current_price = window['close'].iloc[-1]
-        # Guard against degenerate structure levels (missing, or equal to
-        # entry price - would divide by zero in BacktestEngine's position
-        # sizing) rather than letting a bad level crash a long backtest run.
+        sl = rec['sl']
+        tp = rec['tp']
+        current_price = rec['price']
+        # Guard against degenerate structure levels (missing, or equal to entry).
         if not sl or not tp or abs(current_price - sl) < 1e-6:
             return {'action': 'WAIT'}
 
-        # Match live_trading_executor.py's R/R filter (EliteTradingConfig.
-        # MIN_RR_RATIO = 2.0). This is the exact gate that blocked a real
-        # M30 trade live (R/R 1.43 < 2.0) while this backtest, before this
-        # fix, had no R/R floor at all and would have taken it anyway.
+        # Signal-time R/R filter (EliteTradingConfig.MIN_RR_RATIO = 2.0).
         risk = abs(current_price - sl)
         reward = abs(tp - current_price)
-        if risk <= 0 or (reward / risk) < 2.0:
+        if risk <= 0 or (reward / risk) < MIN_RR_RATIO:
             return {'action': 'WAIT'}
+
+        # Live executor adjustments, applied AFTER the signal-time check
+        # exactly as in live_trading_executor.execute_live_trade().
+        if live_stops and rec['atr'] > 0:
+            floor_dist = rec['atr'] + spread
+            sl_dist = abs(current_price - sl)
+            if sl_dist < floor_dist:
+                sl_dist = floor_dist
+                sl = current_price - sl_dist if signal == 'BUY' else current_price + sl_dist
+            min_tp_dist = sl_dist * MIN_RR_RATIO
+            if abs(tp - current_price) < min_tp_dist:
+                tp = current_price + min_tp_dist if signal == 'BUY' else current_price - min_tp_dist
 
         return {
             'action': signal,
@@ -254,15 +278,18 @@ def print_monthly_breakdown(results, label=""):
 
 
 def run_single_backtest(connector, ta, symbol, timeframe, start_date, end_date,
-                         balance, max_duration_minutes, htf_data_cache=None):
+                         balance, max_duration_minutes, htf_data_cache=None,
+                         min_conf=MIN_CONFIDENCE_PCT, live_stops=False, spread=0.40,
+                         base_data=None, quiet=False):
     """
     Run one backtest for one timeframe. Returns (engine, results, htf_data_cache).
     htf_data_cache is a dict {'H4': df, 'D1': df} - fetched once and reused
     across timeframes in --timeframe all, since the H4/D1 series don't
     depend on which base timeframe is being tested.
     """
-    base_data = fetch_data(connector, symbol, timeframe, start_date, end_date,
-                            f"base timeframe data ({timeframe})")
+    if base_data is None:
+        base_data = fetch_data(connector, symbol, timeframe, start_date, end_date,
+                                f"base timeframe data ({timeframe})")
 
     if htf_data_cache is None:
         htf_data_cache = {}
@@ -274,15 +301,69 @@ def run_single_backtest(connector, ta, symbol, timeframe, start_date, end_date,
             )
 
     htf_connector = OfflineHTFConnector(htf_data_cache)
-    strategy = make_gold_strategy(ta, htf_connector, timeframe)
+    strategy = make_gold_strategy(ta, htf_connector, timeframe, min_conf=min_conf,
+                                  live_stops=live_stops, spread=spread)
 
-    print(f"\nRunning backtest over {len(base_data)} candles ({timeframe}) "
-          f"(this uses the real analysis engine per candle, so it will take a while)...\n")
+    if not quiet:
+        print(f"\nRunning backtest over {len(base_data)} candles ({timeframe}) "
+              f"(this uses the real analysis engine per candle, so it will take a while)...\n")
 
     engine = BacktestEngine(initial_balance=balance)
     max_duration = max_duration_minutes if max_duration_minutes and max_duration_minutes > 0 else None
     results = engine.run_backtest(base_data, strategy, max_duration_minutes=max_duration)
-    return engine, results, htf_data_cache
+    return engine, results, htf_data_cache, base_data
+
+
+VARIANTS = [
+    # (label, confidence floor, live stop rules?)
+    ("OLD gates: conf>=65, structure stops", 65.0, False),
+    ("LIVE gate: conf>=%.0f, structure stops" % MIN_CONFIDENCE_PCT, MIN_CONFIDENCE_PCT, False),
+    ("LIVE gate: conf>=%.0f, LIVE stops" % MIN_CONFIDENCE_PCT, MIN_CONFIDENCE_PCT, True),
+    ("conf>=55, LIVE stops", 55.0, True),
+    ("conf>=65, LIVE stops", 65.0, True),
+]
+
+
+def run_variants(connector, ta, tf, start_date, end_date, args):
+    rows = []
+    htf_cache = None
+    base_data = None
+    for idx, (label, conf, live) in enumerate(VARIANTS):
+        print(f"\n--- Variant {idx + 1}/{len(VARIANTS)}: {label} ---")
+        engine, results, htf_cache, base_data = run_single_backtest(
+            connector, ta, SYMBOL, tf, start_date, end_date, args.balance,
+            args.max_duration_minutes, htf_data_cache=htf_cache, min_conf=conf,
+            live_stops=live, spread=args.spread, base_data=base_data, quiet=(idx > 0)
+        )
+        trades = results.get('trades', [])
+        pnls = pd.Series([t['pnl'] for t in trades], dtype=float)
+        m = results.get('metrics', {})
+        if len(pnls) > 1 and pnls.std() > 0:
+            t_stat = pnls.mean() / (pnls.std() / (len(pnls) ** 0.5))
+        else:
+            t_stat = 0.0
+        rows.append({
+            'label': label,
+            'trades': len(trades),
+            'win_rate': m.get('win_rate', 0),
+            'return_pct': 100 * (results['final_balance'] - results['initial_balance']) / results['initial_balance'],
+            'pf': m.get('profit_factor', 0),
+            'dd': m.get('max_drawdown_pct', 0),
+            't': t_stat,
+        })
+        if idx == 2:
+            print_monthly_breakdown(results, label=label)
+
+    print(f"\n{'=' * 100}")
+    print(f"VARIANT COMPARISON - {SYMBOL} {tf}, {start_date.date()} to {end_date.date()}")
+    print(f"{'=' * 100}")
+    print(f"{'Variant':<42}{'Trades':>7}{'Win%':>7}{'Return%':>9}{'PF':>7}{'MaxDD%':>8}{'t-stat':>8}")
+    for r in rows:
+        print(f"{r['label']:<42}{r['trades']:>7}{r['win_rate']:>7.1f}{r['return_pct']:>9.2f}"
+              f"{r['pf']:>7.2f}{r['dd']:>8.2f}{r['t']:>8.2f}")
+    print(f"{'=' * 100}")
+    print("t-stat = mean trade P&L / its standard error. Below about 2.0 you cannot rule out luck;")
+    print("with only a few dozen trades it will usually be below 2 even for a real edge.")
 
 
 def main():
@@ -304,6 +385,18 @@ def main():
                               "matches the live bot, which no longer force-closes on a timer either - "
                               "backtesting showed the old 10-minute cap was actively harmful (cut trades "
                               "off before they could reach take_profit). Pass a number to re-test with a cap.")
+    parser.add_argument('--min-confidence', type=float, default=MIN_CONFIDENCE_PCT,
+                         help="Confidence floor in percent (default: the shared live value in "
+                              "confidence_config.py, currently %.0f)." % MIN_CONFIDENCE_PCT)
+    parser.add_argument('--live-stops', action='store_true',
+                         help="Apply the live executor's stop/target rules: stop widened to at least "
+                              "1x ATR + spread, take-profit pushed out to at least 2x the stop distance.")
+    parser.add_argument('--spread', type=float, default=0.40,
+                         help="Spread in USD used by the stop floor with --live-stops (default 0.40).")
+    parser.add_argument('--variants', action='store_true',
+                         help="Run the old gates, the live gate and the live stop rules side by side on "
+                              "ONE timeframe and print a comparison. The slow per-candle analysis runs "
+                              "once and is reused, so only the first variant is slow.")
     args = parser.parse_args()
 
     end_date = datetime.strptime(args.end, '%Y-%m-%d') if args.end else datetime.now()
@@ -323,11 +416,23 @@ def main():
     htf_data_cache = None  # {'H4': df, 'D1': df} - shared across timeframes in --timeframe all
     comparison = []
 
+    if args.variants:
+        if len(timeframes) != 1:
+            print("--variants works on one timeframe at a time (not --timeframe all).")
+            connector.disconnect()
+            sys.exit(1)
+        try:
+            run_variants(connector, ta, timeframes[0], start_date, end_date, args)
+        finally:
+            connector.disconnect()
+        return
+
     try:
         for tf in timeframes:
-            engine, results, htf_data_cache = run_single_backtest(
+            engine, results, htf_data_cache, _ = run_single_backtest(
                 connector, ta, SYMBOL, tf, start_date, end_date,
-                args.balance, args.max_duration_minutes, htf_data_cache=htf_data_cache
+                args.balance, args.max_duration_minutes, htf_data_cache=htf_data_cache,
+                min_conf=args.min_confidence, live_stops=args.live_stops, spread=args.spread
             )
             engine.print_summary(results)
             print_monthly_breakdown(results, label=tf)

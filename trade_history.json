@@ -1,261 +1,5 @@
 [
   {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T08:14:24.158651"
-  },
-  {
-    "symbol": "AUDUSD",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T08:27:24.084090"
-  },
-  {
-    "symbol": "NZDUSD",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T08:29:24.099863"
-  },
-  {
-    "symbol": "EURGBP",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T09:15:24.259480"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T09:57:24.407128"
-  },
-  {
-    "symbol": "EURGBP",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T10:08:24.501814"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T10:25:24.352681"
-  },
-  {
-    "symbol": "EURGBP",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T10:35:24.449451"
-  },
-  {
-    "symbol": "USDCAD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T10:36:24.587176"
-  },
-  {
-    "symbol": "AUDUSD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T10:39:25.208415"
-  },
-  {
-    "symbol": "USDJPY",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T11:12:24.305160"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T11:17:24.547136"
-  },
-  {
-    "symbol": "EURGBP",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T11:29:24.359139"
-  },
-  {
-    "symbol": "USDJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T11:36:24.305244"
-  },
-  {
-    "symbol": "USDCAD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T11:37:25.023230"
-  },
-  {
-    "symbol": "AUDUSD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T12:12:24.488295"
-  },
-  {
-    "symbol": "USDCAD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T12:12:25.790767"
-  },
-  {
-    "symbol": "NZDUSD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T12:14:24.424788"
-  },
-  {
-    "symbol": "AUDUSD",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T12:30:27.812979"
-  },
-  {
-    "symbol": "AUDUSD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T13:07:24.850137"
-  },
-  {
-    "symbol": "USDJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T13:24:24.402742"
-  },
-  {
-    "symbol": "AUDUSD",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T13:50:24.378644"
-  },
-  {
-    "symbol": "USDCAD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T14:19:24.361876"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T14:43:24.331313"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:01:24.529810"
-  },
-  {
-    "symbol": "EURGBP",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:16:24.390324"
-  },
-  {
-    "symbol": "USDJPY",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:19:24.366768"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:35:24.707415"
-  },
-  {
-    "symbol": "USDCAD",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:41:25.056531"
-  },
-  {
-    "symbol": "EURGBP",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:50:24.458592"
-  },
-  {
-    "symbol": "EURJPY",
-    "direction": "SELL",
-    "score": 0.57,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T15:59:24.403749"
-  },
-  {
-    "symbol": "USDCAD",
-    "direction": "SELL",
-    "score": 0.54,
-    "result": "EXECUTED",
-    "profit": 0.0,
-    "timestamp": "2026-04-15T17:10:24.391721"
-  },
-  {
     "symbol": "NZDUSD",
     "direction": "SELL",
     "score": 0.54,
@@ -798,5 +542,261 @@
     "result": "EXECUTED",
     "profit": 0.0,
     "timestamp": "2026-04-16T21:29:32.821653"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.67,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T13:45:55.563874"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.79,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T14:01:55.601481"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.82,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T14:17:55.576151"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.82,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T16:34:58.855722"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.94,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T16:56:58.985831"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.73,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T17:42:37.393661"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 1.0,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-09T21:08:18.241039"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.88,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-13T11:30:36.423027"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.73,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-13T13:10:06.406078"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.67,
+    "result": "LOSS",
+    "profit": -6.17,
+    "timestamp": "2026-10-13T13:30:01.184903"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.82,
+    "result": "LOSS",
+    "profit": -5.99,
+    "timestamp": "2026-10-13T13:41:29.617667"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.73,
+    "result": "LOSS",
+    "profit": -5.26,
+    "timestamp": "2026-10-13T14:01:29.499295"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.73,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-13T14:57:06.703030"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.76,
+    "result": "LOSS",
+    "profit": -6.4,
+    "timestamp": "2026-10-13T16:10:52.478461"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.82,
+    "result": "LOSS",
+    "profit": -5.63,
+    "timestamp": "2026-10-20T04:43:43.666632"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.82,
+    "result": "WIN",
+    "profit": 5.39,
+    "timestamp": "2026-10-20T05:25:43.892183"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.94,
+    "result": "LOSS",
+    "profit": -6.05,
+    "timestamp": "2026-10-20T05:45:43.705184"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.85,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-20T06:15:43.721762"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.85,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-20T06:31:43.738590"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.94,
+    "result": "LOSS",
+    "profit": -10.42,
+    "timestamp": "2026-10-23T07:56:07.020578"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.67,
+    "result": "WIN",
+    "profit": 5.33,
+    "timestamp": "2026-10-23T08:20:12.360548"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.67,
+    "result": "WIN",
+    "profit": 5.38,
+    "timestamp": "2026-10-23T08:49:12.374035"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.67,
+    "result": "LOSS",
+    "profit": -6.83,
+    "timestamp": "2026-10-23T09:03:56.423473"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.67,
+    "result": "WIN",
+    "profit": 5.14,
+    "timestamp": "2026-10-23T09:30:56.412146"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.67,
+    "result": "LOSS",
+    "profit": -6.15,
+    "timestamp": "2026-10-23T09:50:56.454858"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.76,
+    "result": "LOSS",
+    "profit": -5.38,
+    "timestamp": "2026-10-23T10:18:56.547156"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.79,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-23T11:20:56.624604"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "SELL",
+    "score": 0.82,
+    "result": "SIGNAL SENT",
+    "profit": 0.0,
+    "timestamp": "2026-10-23T11:45:56.580553"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.82,
+    "result": "LOSS",
+    "profit": -1.67,
+    "timestamp": "2026-11-05T08:51:48.131480"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.76,
+    "result": "WIN",
+    "profit": 8.23,
+    "timestamp": "2026-11-05T09:05:44.924161"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.73,
+    "result": "WIN",
+    "profit": 5.17,
+    "timestamp": "2026-11-05T09:38:43.865488"
+  },
+  {
+    "symbol": "XAUUSD",
+    "direction": "BUY",
+    "score": 0.73,
+    "result": "LOSS",
+    "profit": -0.03,
+    "timestamp": "2026-11-05T09:55:43.804178"
   }
 ]

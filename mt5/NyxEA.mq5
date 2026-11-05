@@ -11,7 +11,7 @@
 #include <Trade\Trade.mqh>
 
 //--- Input parameters
-input string SignalFilePath = "/home/ubuntu/nyx-ai/trade_signal.json";
+input string SignalFilePath = "trade_signal.json";
 input int MaxRetries = 3;
 input int RetryDelayMs = 1000;
 input double MaxLotSize = 0.5;
@@ -196,12 +196,12 @@ void ExecuteSignal(string jsonData)
    //--- Handle signal file after execution
    if(result)
    {
-      Print("✅ Trade executed successfully: ", symbol, " ", action, " lot=", lot);
+      Print("Trade executed successfully: ", symbol, " ", action, " lot=", lot);
       RenameSignalFile("done");
    }
    else
    {
-      Print("❌ Trade execution failed: ", symbol, " ", action);
+      Print("Trade execution failed: ", symbol, " ", action);
       RenameSignalFile("failed");
    }
 }
@@ -434,14 +434,14 @@ bool ExecuteBuy(string symbol, double lot, double sl, double tp)
    
    if(result)
    {
-      Print("✅ BUY order executed: ", symbol, " ", lot, " lots @ ", ask);
+      Print("BUY order executed: ", symbol, " ", lot, " lots @ ", ask);
       Print("   SL: ", sl, " TP: ", tp);
    }
    else
    {
       uint errorCode = trade.ResultCode();
       string errorDesc = trade.ResultComment();
-      Print("❌ BUY order failed: ", errorCode, " - ", errorDesc);
+      Print("BUY order failed: ", errorCode, " - ", errorDesc);
    }
    
    return result;
@@ -481,14 +481,14 @@ bool ExecuteSell(string symbol, double lot, double sl, double tp)
    
    if(result)
    {
-      Print("✅ SELL order executed: ", symbol, " ", lot, " lots @ ", bid);
+      Print("SELL order executed: ", symbol, " ", lot, " lots @ ", bid);
       Print("   SL: ", sl, " TP: ", tp);
    }
    else
    {
       uint errorCode = trade.ResultCode();
       string errorDesc = trade.ResultComment();
-      Print("❌ SELL order failed: ", errorCode, " - ", errorDesc);
+      Print("SELL order failed: ", errorCode, " - ", errorDesc);
    }
    
    return result;

@@ -1,8 +1,8 @@
 {
-  "total_trades": 24,
-  "wins": 18,
-  "losses": 6,
-  "win_rate": 75.0,
+  "total_trades": 49,
+  "wins": 26,
+  "losses": 23,
+  "win_rate": 53.06122448979592,
   "recent_trades": [
     {
       "symbol": "USDCAD",
@@ -219,6 +219,231 @@
       "timestamp": "2026-04-16T23:27:32.614931",
       "date": "2026-04-16",
       "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-08T10:39:31.768566",
+      "date": "2026-09-08",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-08T10:40:31.781159",
+      "date": "2026-09-08",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-08T10:43:36.922218",
+      "date": "2026-09-08",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-08T11:12:11.888809",
+      "date": "2026-09-08",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -25.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-08T13:32:12.043223",
+      "date": "2026-09-08",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-08T14:37:13.059455",
+      "date": "2026-09-08",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 50.0,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-09-09T16:19:21.210403",
+      "date": "2026-09-09",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -5.26,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-13T14:09:29.467107",
+      "date": "2026-10-13",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -5.99,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-13T14:10:29.448423",
+      "date": "2026-10-13",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -6.17,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-13T14:47:29.655771",
+      "date": "2026-10-13",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -6.4,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-13T16:20:52.453007",
+      "date": "2026-10-13",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -5.63,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-20T05:07:43.598859",
+      "date": "2026-10-20",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 5.39,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-20T05:43:43.680693",
+      "date": "2026-10-20",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -6.05,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-20T05:48:43.849813",
+      "date": "2026-10-20",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -10.42,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T08:12:12.622621",
+      "date": "2026-10-23",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 5.33,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T08:29:12.361795",
+      "date": "2026-10-23",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 5.38,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T08:55:12.417321",
+      "date": "2026-10-23",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 5.14,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T09:33:56.418650",
+      "date": "2026-10-23",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -5.38,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T10:31:56.564037",
+      "date": "2026-10-23",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -6.15,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T10:31:56.833104",
+      "date": "2026-10-23",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -6.83,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-10-23T10:31:57.104969",
+      "date": "2026-10-23",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -1.67,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-11-05T08:59:30.591650",
+      "date": "2026-11-05",
+      "was_profitable": false
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 8.23,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-11-05T09:08:43.670030",
+      "date": "2026-11-05",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": 5.17,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-11-05T09:47:43.709481",
+      "date": "2026-11-05",
+      "was_profitable": true
+    },
+    {
+      "symbol": "XAUUSD",
+      "profit": -0.03,
+      "score": 0.65,
+      "confidence": 75.0,
+      "timestamp": "2026-11-05T10:00:14.975605",
+      "date": "2026-11-05",
+      "was_profitable": false
     }
   ],
   "daily_performance": {
@@ -245,7 +470,43 @@
       "wins": 12,
       "losses": 3,
       "profit": 525.0
+    },
+    "2026-09-08": {
+      "trades": 6,
+      "wins": 1,
+      "losses": 5,
+      "profit": -75.0
+    },
+    "2026-09-09": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "profit": 50.0
+    },
+    "2026-10-13": {
+      "trades": 4,
+      "wins": 0,
+      "losses": 4,
+      "profit": -23.82
+    },
+    "2026-10-20": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "profit": -6.29
+    },
+    "2026-10-23": {
+      "trades": 7,
+      "wins": 3,
+      "losses": 4,
+      "profit": -12.93
+    },
+    "2026-11-05": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "profit": 11.700000000000001
     }
   },
-  "last_updated": "2026-04-16T23:27:32.614965"
+  "last_updated": "2026-11-05T10:00:14.975605"
 }

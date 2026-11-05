@@ -48,7 +48,7 @@ class BacktestEngine:
         Returns:
             Backtest results dictionary
         """
-        print(f"🔥 Starting backtest on {len(data)} candles...")
+        print(f"Starting backtest on {len(data)} candles...")
         
         # Reset state
         self.balance = self.initial_balance
@@ -288,7 +288,7 @@ class BacktestEngine:
         # "Total Return" was wrong while the balance itself was fine).
         actual_return = self.balance - self.initial_balance
         if abs(total_pnl - actual_return) > 0.01:
-            print(f"⚠️ WARNING: sum(trade pnl)=${total_pnl:.2f} does not match "
+            print(f"WARNING: sum(trade pnl)=${total_pnl:.2f} does not match "
                   f"actual balance change=${actual_return:.2f} (diff=${total_pnl - actual_return:.2f}). "
                   f"Using the real balance-based figure for Total Return - "
                   f"this mismatch means something else isn't accounting for "
@@ -433,19 +433,19 @@ class BacktestEngine:
         metrics = results['metrics']
         
         print("\n" + "="*60)
-        print("🔥 BACKTEST RESULTS SUMMARY")
+        print("BACKTEST RESULTS SUMMARY")
         print("="*60)
-        print(f"💰 Initial Balance: ${results['initial_balance']:,.2f}")
-        print(f"💰 Final Balance: ${results['final_balance']:,.2f}")
-        print(f"📈 Total Return: {metrics['total_return_pct']:.2f}%")
-        print(f"📊 Total Trades: {metrics['total_trades']}")
-        print(f"🎯 Win Rate: {metrics['win_rate']:.1f}%")
-        print(f"💵 Average Win: ${metrics['avg_win']:.2f}")
-        print(f"💸 Average Loss: ${metrics['avg_loss']:.2f}")
-        print(f"⚖️ Profit Factor: {metrics['profit_factor']:.2f}")
-        print(f"📉 Max Drawdown: {metrics['max_drawdown_pct']:.2f}%")
-        print(f"📈 Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
-        print(f"⏱️ Avg Trade Duration: {metrics['avg_trade_duration']:.1f} hours")
+        print(f"Initial Balance: ${results['initial_balance']:,.2f}")
+        print(f"Final Balance: ${results['final_balance']:,.2f}")
+        print(f"Total Return: {metrics['total_return_pct']:.2f}%")
+        print(f"Total Trades: {metrics['total_trades']}")
+        print(f"Win Rate: {metrics['win_rate']:.1f}%")
+        print(f"Average Win: ${metrics['avg_win']:.2f}")
+        print(f"Average Loss: ${metrics['avg_loss']:.2f}")
+        print(f"Profit Factor: {metrics['profit_factor']:.2f}")
+        print(f"Max Drawdown: {metrics['max_drawdown_pct']:.2f}%")
+        print(f"Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
+        print(f"Avg Trade Duration: {metrics['avg_trade_duration']:.1f} hours")
         print("="*60)
 
 

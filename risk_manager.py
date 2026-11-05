@@ -61,7 +61,8 @@ class RiskManager:
         try:
             # Get current candle data
             rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 2)
-            if not rates or len(rates) < 2:
+            # numpy arrays have no unambiguous truth value, so test for None explicitly
+            if rates is None or len(rates) < 2:
                 return True, "No candle data"
                 
             current_candle = rates[-1]
@@ -72,7 +73,7 @@ class RiskManager:
             
             # Get ATR for comparison
             atr_value = self.get_atr_value(symbol)
-            # 🔧 LEVEL 10.2: ROBUST ARRAY HANDLING
+            # LEVEL 10.2: ROBUST ARRAY HANDLING
             if atr_value is not None:
                 # Convert to scalar if it's an array
                 try:
@@ -92,7 +93,7 @@ class RiskManager:
                     atr_value = 0.001  # Safe fallback
                     
                 if atr_value > 0:  # Ensure scalar and valid
-                    # Check if current range > 2× ATR (news spike)
+                    # Check if current range > 2x ATR (news spike)
                     if candle_range > atr_value * VOLATILITY_SPIKE_MULTIPLIER:
                         return False, f"Volatility spike ({candle_range:.5f} > {atr_value * VOLATILITY_SPIKE_MULTIPLIER:.5f})"
             
@@ -100,11 +101,18 @@ class RiskManager:
             tick = mt5.symbol_info_tick(symbol)
             if tick:
                 current_spread = tick.ask - tick.bid
-                avg_spread = self.get_average_spread(symbol)
-                
-                if avg_spread and current_spread > avg_spread * SPREAD_EXPANSION_MULTIPLIER:
-                    return False, f"Blocked: Spread expansion ({current_spread*10000:.1f} > {avg_spread*10000*SPREAD_EXPANSION_MULTIPLIER:.1f} pips)"
-                    
+                # Compare against a LEARNED average for this symbol. The old
+                # hardcoded FX default (0.0001) made gold's normal spread look
+                # like a 1900x expansion and blocked every trade.
+                avg_spread = self.average_spreads.get(symbol)
+                if avg_spread is None:
+                    self.update_average_spread(symbol, current_spread)
+                elif current_spread > avg_spread * SPREAD_EXPANSION_MULTIPLIER:
+                    # Do not fold the spiked value into the average
+                    return False, f"Blocked: Spread expansion ({current_spread:.5f} > {avg_spread * SPREAD_EXPANSION_MULTIPLIER:.5f} price units)"
+                else:
+                    self.update_average_spread(symbol, current_spread)
+
             return True, "Volatility check passed"
             
         except Exception as e:
@@ -170,14 +178,26 @@ class RiskManager:
         if not account_info:
             return True, 0.0, "No account info"
             
-        # Calculate total risk based on SL distances
+        # Total money at risk = what would be lost if every stop-loss is hit.
+        # Uses the symbol's real contract size (gold = 100 oz per lot). The
+        # old code used the forex constant 100000, which overstated gold risk
+        # about 1000x and blocked every trade while a position was open.
         total_risk_amount = 0.0
         for pos in positions:
-            if pos.profit < 0:  # Only count losing positions
-                risk_distance = abs(pos.price_open - pos.sl)
-                position_risk = risk_distance * pos.volume * 100000  # Approximate pip value
-                total_risk_amount += position_risk
-                
+            sym = mt5.symbol_info(pos.symbol)
+            contract = float(getattr(sym, "trade_contract_size", 0) or 100.0)
+            if pos.sl and pos.sl > 0:
+                # BUY: loss if SL hit = open - sl ; SELL: sl - open.
+                # A stop already moved past entry (locked profit) is zero risk.
+                if pos.type == 0:
+                    dist = pos.price_open - pos.sl
+                else:
+                    dist = pos.sl - pos.price_open
+                dist = max(0.0, dist)
+            else:
+                dist = 0.0  # no stop set; cannot size it here
+            total_risk_amount += dist * pos.volume * contract
+
         risk_percentage = (total_risk_amount / account_info.balance) * 100 if account_info.balance > 0 else 0
         
         if risk_percentage > MAX_GLOBAL_RISK * 100:
@@ -192,7 +212,7 @@ class RiskManager:
             
         try:
             rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, ATR_PERIOD + 1)
-            if not rates or len(rates) < ATR_PERIOD:
+            if rates is None or len(rates) < ATR_PERIOD:
                 return None
                 
             # Calculate ATR (simplified)
@@ -263,9 +283,13 @@ class RiskManager:
         direction_counts = {"BUY": 0, "SELL": 0}
         
         for pos in positions:
-            total_exposure += pos.volume * 100000  # Approximate
-            total_risk += abs(pos.price_open - pos.sl) * pos.volume * 100000
-            
+            sym = mt5.symbol_info(pos.symbol)
+            contract = float(getattr(sym, "trade_contract_size", 0) or 100.0)
+            total_exposure += pos.volume * contract * pos.price_open
+            if pos.sl and pos.sl > 0:
+                dist = (pos.price_open - pos.sl) if pos.type == 0 else (pos.sl - pos.price_open)
+                total_risk += max(0.0, dist) * pos.volume * contract
+
             symbol_counts[pos.symbol] = symbol_counts.get(pos.symbol, 0) + 1
             direction_counts["BUY" if pos.type == 0 else "SELL"] += 1
             

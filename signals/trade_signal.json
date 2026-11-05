@@ -1,0 +1,13 @@
+{
+    "symbol": "XAUUSD",
+    "action": "BUY",
+    "lot": 0.01,
+    "sl": 4184.53,
+    "tp": 4205.029999999999,
+    "confidence": 48.875,
+    "score": 0.88,
+    "timestamp": "2026-10-13T08:30:36.422028",
+    "entry_price": 4192.73,
+    "signal_id": "XAUUSD_BUY_1791880236",
+    "status": "new"
+}
